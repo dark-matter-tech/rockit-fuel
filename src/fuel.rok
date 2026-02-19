@@ -49,11 +49,21 @@ fun stringSplit(s: String, delimiter: String): List {
     return result
 }
 
+fun isWindows(): Bool {
+    return toString(platformOS()) == "windows"
+}
+
+fun pathSep(): String {
+    if (isWindows()) { return "\\" }
+    return "/"
+}
+
 fun dirName(path: String): String {
     val len = stringLength(path)
     var i: Int = len - 1
     while (i >= 0) {
-        if (charAt(path, i) == "/") {
+        val ch = charAt(path, i)
+        if (ch == "/" || ch == "\\") {
             return substring(path, 0, i)
         }
         i = i - 1
@@ -65,7 +75,8 @@ fun baseName(path: String): String {
     val len = stringLength(path)
     var i: Int = len - 1
     while (i >= 0) {
-        if (charAt(path, i) == "/") {
+        val ch = charAt(path, i)
+        if (ch == "/" || ch == "\\") {
             return substring(path, i + 1, len)
         }
         i = i - 1
@@ -160,7 +171,13 @@ fun cmdInit(args: List): Unit {
     }
 
     // Create directory structure
-    val mkdirCmd = stringConcat("mkdir -p ", stringConcat(name, "/src"))
+    val sep = pathSep()
+    var mkdirCmd: String = ""
+    if (isWindows()) {
+        mkdirCmd = stringConcat("mkdir ", stringConcat(name, stringConcat("\\", "src")))
+    } else {
+        mkdirCmd = stringConcat("mkdir -p ", stringConcat(name, "/src"))
+    }
     val exitCode = systemExec(mkdirCmd)
     if (exitCode != 0) {
         println(stringConcat("error: failed to create directory: ", name))
@@ -173,18 +190,18 @@ fun cmdInit(args: List): Unit {
     toml = stringConcat(toml, "version = 0.1.0\n")
     toml = stringConcat(toml, stringConcat("description = A Rockit project\n", "\n"))
     toml = stringConcat(toml, "[dependencies]\n")
-    writeFile(stringConcat(name, "/Fuel.toml"), toml)
+    writeFile(stringConcat(name, stringConcat(sep, "Fuel.toml")), toml)
 
     // Write src/main.rok
     var main: String = "fun main(): Unit {\n"
     main = stringConcat(main, "    println(\"Hello, Rockit!\")\n")
     main = stringConcat(main, "}\n")
-    writeFile(stringConcat(name, "/src/main.rok"), main)
+    writeFile(stringConcat(name, stringConcat(sep, stringConcat("src", stringConcat(sep, "main.rok")))), main)
 
     // Write README.md
     var readme: String = stringConcat("# ", stringConcat(name, "\n\n"))
     readme = stringConcat(readme, "A Rockit project.\n")
-    writeFile(stringConcat(name, "/README.md"), readme)
+    writeFile(stringConcat(name, stringConcat(sep, "README.md")), readme)
 
     println(stringConcat("Created new Rockit project: ", name))
     println("")
@@ -215,19 +232,28 @@ fun cmdBuild(args: List): Unit {
         return
     }
 
-    val entryPoint = "src/main.rok"
+    val sep = pathSep()
+    val entryPoint = stringConcat("src", stringConcat(sep, "main.rok"))
     if (fileExists(entryPoint) == false) {
         println(stringConcat("error: entry point not found: ", entryPoint))
         return
     }
 
     // Create build directory
-    systemExec("mkdir -p build")
+    if (isWindows()) {
+        systemExec("if not exist build mkdir build")
+    } else {
+        systemExec("mkdir -p build")
+    }
 
     // Find compiler
     var compilerPath: String = findFlag(args, "--compiler-path")
     if (stringLength(compilerPath) == 0) {
-        compilerPath = "rockit"
+        if (isWindows()) {
+            compilerPath = "rockit.exe"
+        } else {
+            compilerPath = "rockit"
+        }
     }
 
     // Find runtime (only pass through if explicitly provided)
@@ -236,7 +262,7 @@ fun cmdBuild(args: List): Unit {
     // Build command
     var cmd: String = stringConcat(compilerPath, " build-native ")
     cmd = stringConcat(cmd, stringConcat(entryPoint, " -o "))
-    cmd = stringConcat(cmd, stringConcat("build/", name))
+    cmd = stringConcat(cmd, stringConcat("build", stringConcat(sep, name)))
     if (stringLength(runtimePath) > 0) {
         cmd = stringConcat(cmd, stringConcat(" --runtime-path ", runtimePath))
     }
@@ -247,7 +273,7 @@ fun cmdBuild(args: List): Unit {
         println("error: build failed")
         return
     }
-    println(stringConcat("Built: build/", name))
+    println(stringConcat("Built: build", stringConcat(sep, name)))
 }
 
 fun cmdRun(args: List): Unit {
@@ -257,14 +283,22 @@ fun cmdRun(args: List): Unit {
     val manifest = parseManifest("Fuel.toml")
     val packageInfo = mapGet(manifest, "package")
     val name = toString(mapGet(packageInfo, "name"))
-    val binaryPath = stringConcat("build/", name)
+    val sep = pathSep()
+    var binaryPath: String = stringConcat("build", stringConcat(sep, name))
+    if (isWindows()) {
+        binaryPath = stringConcat(binaryPath, ".exe")
+    }
 
     if (fileExists(binaryPath) == false) {
         return
     }
 
     println("")
-    systemExec(stringConcat("./", binaryPath))
+    if (isWindows()) {
+        systemExec(binaryPath)
+    } else {
+        systemExec(stringConcat("./", binaryPath))
+    }
 }
 
 fun cmdClean(): Unit {
@@ -276,7 +310,11 @@ fun cmdClean(): Unit {
         println("Nothing to clean.")
         return
     }
-    val exitCode = systemExec("rm -rf build")
+    var cleanCmd: String = "rm -rf build"
+    if (isWindows()) {
+        cleanCmd = "rmdir /s /q build"
+    }
+    val exitCode = systemExec(cleanCmd)
     if (exitCode != 0) {
         println("error: failed to remove build directory")
         return
