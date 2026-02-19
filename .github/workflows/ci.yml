@@ -46,6 +46,9 @@ jobs:
           RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
           $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
 
+      - name: Test — rockit version
+        run: /tmp/rockit-compiler/RockitCompiler/Stage1/command version
+
       - name: Test — fuel version
         run: ./fuel version | grep -q "0.1.0"
 
