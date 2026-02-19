@@ -33,13 +33,17 @@ jobs:
           echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
           git clone --depth 1 "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
-          ls /tmp/rockit-compiler/
+          echo "=== /tmp/rockit-compiler contents ==="
+          ls -la /tmp/rockit-compiler/
+          echo "=== /tmp/rockit-compiler/RockitCompiler exists? ==="
+          test -d /tmp/rockit-compiler/RockitCompiler && echo "YES" || echo "NO"
         env:
           FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
       - name: Build Stage 1 compiler
         run: |
           set -e
+          ls -la /tmp/rockit-compiler/
           cd /tmp/rockit-compiler/RockitCompiler
           swift run rockit build-native Stage1/command.rok
 
