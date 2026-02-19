@@ -29,7 +29,9 @@ jobs:
 
       - name: Checkout RockitCompiler
         run: |
-          git clone --depth 1 "https://x-access-token:${FUEL_TOKEN}@${GITHUB_SERVER_URL#https://}/Dark-Matter/moon.git" /tmp/rockit-compiler
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          git clone --depth 1 "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
         env:
           FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
