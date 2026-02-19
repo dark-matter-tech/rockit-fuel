@@ -76,6 +76,13 @@ jobs:
           RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
           $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
 
+      - name: Test — fuel clean
+        run: |
+          cd /tmp/test-project
+          test -d build
+          $GITHUB_WORKSPACE/fuel clean
+          test ! -d build
+
       - name: Test — error no Fuel.toml
         run: |
           cd /tmp

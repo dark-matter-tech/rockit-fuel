@@ -70,6 +70,14 @@ Build and run the project.
 fuel run
 ```
 
+### fuel clean
+
+Remove build artifacts.
+
+```bash
+fuel clean
+```
+
 ### fuel version
 
 ```bash
@@ -139,7 +147,7 @@ Fuel is written in Rockit and compiled to a native binary with the Stage 1 compi
 - [ ] `fuel test` — Probe test framework integration
 - [ ] `fuel add <package>` — Add dependencies to Fuel.toml
 - [ ] `fuel install` — Resolve and fetch git-based dependencies
-- [ ] `fuel clean` — Remove build artifacts
+- [x] `fuel clean` — Remove build artifacts
 - [ ] Lock file (`Fuel.lock`) for reproducible builds
 - [ ] Multi-file project support (`src/**/*.rok`)
 

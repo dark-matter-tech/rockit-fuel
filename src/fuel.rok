@@ -267,6 +267,23 @@ fun cmdRun(args: List): Unit {
     systemExec(stringConcat("./", binaryPath))
 }
 
+fun cmdClean(): Unit {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        return
+    }
+    if (fileExists("build") == false) {
+        println("Nothing to clean.")
+        return
+    }
+    val exitCode = systemExec("rm -rf build")
+    if (exitCode != 0) {
+        println("error: failed to remove build directory")
+        return
+    }
+    println("Cleaned build/")
+}
+
 fun cmdVersion(): Unit {
     println(stringConcat("fuel ", FUEL_VERSION()))
 }
@@ -282,6 +299,7 @@ fun cmdHelp(): Unit {
     println("    init [name]    Create a new Rockit project")
     println("    build          Compile the project")
     println("    run            Build and run the project")
+    println("    clean          Remove build artifacts")
     println("    version        Print version info")
     println("    help           Print this help message")
     println("")
@@ -318,6 +336,8 @@ fun main(): Unit {
         cmdBuild(restArgs)
     } else if (command == "run") {
         cmdRun(restArgs)
+    } else if (command == "clean") {
+        cmdClean()
     } else if (command == "version" || command == "--version" || command == "-v") {
         cmdVersion()
     } else if (command == "help" || command == "--help" || command == "-h") {
