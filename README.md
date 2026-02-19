@@ -135,27 +135,31 @@ Fuel is written in Rockit and compiled to a native binary with the Stage 1 compi
 
 ## Roadmap
 
-### MVP (current)
+### Done
 - [x] `fuel init` — Project scaffolding
 - [x] `fuel build` — Native compilation via `command`
 - [x] `fuel run` — Build and run
+- [x] `fuel clean` — Remove build artifacts
 - [x] `fuel version` / `fuel help`
 - [x] `Fuel.toml` manifest parsing
 - [x] CI pipeline (Gitea Actions)
+- [x] Compiler progress output (`Parsing... Type checking... Generating IR... Linking...`)
 
 ### Next
+- [ ] Standard library (`stdlib/rockit/`)
 - [ ] `fuel test` — Probe test framework integration
 - [ ] `fuel add <package>` — Add dependencies to Fuel.toml
 - [ ] `fuel install` — Resolve and fetch git-based dependencies
-- [x] `fuel clean` — Remove build artifacts
 - [ ] Lock file (`Fuel.lock`) for reproducible builds
 - [ ] Multi-file project support (`src/**/*.rok`)
+- [ ] Pre-built binary distribution per platform (macOS ARM64, macOS x86, Linux x86)
+- [ ] Install script (`curl | sh` one-liner)
 
 ### Future
 - [ ] `fuel publish` — Publish to Silo registry
 - [ ] `fuel search` — Search Silo registry
 - [ ] Cross-compilation (`--target-triple`)
-- [ ] Pre-built binary distribution per platform (macOS ARM64, macOS x86, Linux x86)
+- [ ] Docker CI image (pre-built compiler for faster CI)
 
 ## Contributing
 
