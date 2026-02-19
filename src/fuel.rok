@@ -1,0 +1,329 @@
+// fuel.rok — The Rockit Package Manager
+// Copyright 2026 Dark Matter Tech. All rights reserved.
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+fun FUEL_VERSION(): String { return "0.1.0" }
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+fun stringToBytes(s: String): List {
+    val result = listCreate()
+    val len = stringLength(s)
+    var i: Int = 0
+    while (i < len) {
+        listAppend(result, charCodeAt(s, i))
+        i = i + 1
+    }
+    return result
+}
+
+fun writeFile(path: String, content: String): Unit {
+    val bytes = stringToBytes(content)
+    fileWriteBytes(path, bytes)
+}
+
+fun stringSplit(s: String, delimiter: String): List {
+    val result = listCreate()
+    val delimLen = stringLength(delimiter)
+    val sLen = stringLength(s)
+    if (sLen == 0) { return result }
+    var start: Int = 0
+    var i: Int = 0
+    while (i <= sLen - delimLen) {
+        if (substring(s, i, i + delimLen) == delimiter) {
+            listAppend(result, substring(s, start, i))
+            i = i + delimLen
+            start = i
+        } else {
+            i = i + 1
+        }
+    }
+    if (start <= sLen) {
+        listAppend(result, substring(s, start, sLen))
+    }
+    return result
+}
+
+fun dirName(path: String): String {
+    val len = stringLength(path)
+    var i: Int = len - 1
+    while (i >= 0) {
+        if (charAt(path, i) == "/") {
+            return substring(path, 0, i)
+        }
+        i = i - 1
+    }
+    return "."
+}
+
+fun baseName(path: String): String {
+    val len = stringLength(path)
+    var i: Int = len - 1
+    while (i >= 0) {
+        if (charAt(path, i) == "/") {
+            return substring(path, i + 1, len)
+        }
+        i = i - 1
+    }
+    return path
+}
+
+fun findFlag(args: List, flag: String): String {
+    var i: Int = 0
+    while (i < listSize(args)) {
+        if (toString(listGet(args, i)) == flag) {
+            if (i + 1 < listSize(args)) {
+                return toString(listGet(args, i + 1))
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// ---------------------------------------------------------------------------
+// Manifest Parser
+// ---------------------------------------------------------------------------
+
+fun parseManifest(path: String): Map {
+    val manifest = mapCreate()
+    val packageInfo = mapCreate()
+    val deps = mapCreate()
+    mapPut(manifest, "package", packageInfo)
+    mapPut(manifest, "dependencies", deps)
+
+    if (fileExists(path) == false) {
+        mapPut(manifest, "error", "Fuel.toml not found")
+        return manifest
+    }
+
+    val content = toString(fileRead(path))
+    val lines = stringSplit(content, "\n")
+    var currentSection: String = ""
+    var i: Int = 0
+    while (i < listSize(lines)) {
+        val rawLine = toString(listGet(lines, i))
+        val line = stringTrim(rawLine)
+
+        if (stringLength(line) == 0) {
+            // skip blank lines
+        } else if (startsWith(line, "#")) {
+            // skip comments
+        } else if (startsWith(line, "[")) {
+            val closeBracket = stringIndexOf(line, "]")
+            if (closeBracket > 1) {
+                currentSection = substring(line, 1, closeBracket)
+            }
+        } else {
+            val eqPos = stringIndexOf(line, "=")
+            if (eqPos > 0) {
+                val key = stringTrim(substring(line, 0, eqPos))
+                val value = stringTrim(substring(line, eqPos + 1, stringLength(line)))
+                if (currentSection == "package") {
+                    mapPut(packageInfo, key, value)
+                } else if (currentSection == "dependencies") {
+                    mapPut(deps, key, value)
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return manifest
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+fun cmdInit(args: List): Unit {
+    var name: String = ""
+    if (listSize(args) > 0) {
+        name = toString(listGet(args, 0))
+        // Skip flags
+        if (startsWith(name, "-")) {
+            name = ""
+        }
+    }
+    if (stringLength(name) == 0) {
+        print("Project name: ")
+        name = stringTrim(readLine())
+        if (stringLength(name) == 0) {
+            println("error: project name is required")
+            return
+        }
+    }
+
+    // Create directory structure
+    val mkdirCmd = stringConcat("mkdir -p ", stringConcat(name, "/src"))
+    val exitCode = systemExec(mkdirCmd)
+    if (exitCode != 0) {
+        println(stringConcat("error: failed to create directory: ", name))
+        return
+    }
+
+    // Write Fuel.toml
+    var toml: String = "[package]\n"
+    toml = stringConcat(toml, stringConcat("name = ", stringConcat(name, "\n")))
+    toml = stringConcat(toml, "version = 0.1.0\n")
+    toml = stringConcat(toml, stringConcat("description = A Rockit project\n", "\n"))
+    toml = stringConcat(toml, "[dependencies]\n")
+    writeFile(stringConcat(name, "/Fuel.toml"), toml)
+
+    // Write src/main.rok
+    var main: String = "fun main(): Unit {\n"
+    main = stringConcat(main, "    println(\"Hello, Rockit!\")\n")
+    main = stringConcat(main, "}\n")
+    writeFile(stringConcat(name, "/src/main.rok"), main)
+
+    // Write README.md
+    var readme: String = stringConcat("# ", stringConcat(name, "\n\n"))
+    readme = stringConcat(readme, "A Rockit project.\n")
+    writeFile(stringConcat(name, "/README.md"), readme)
+
+    println(stringConcat("Created new Rockit project: ", name))
+    println("")
+    println("  To get started:")
+    println(stringConcat("    cd ", name))
+    println("    fuel build")
+    println("    fuel run")
+}
+
+fun cmdBuild(args: List): Unit {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return
+    }
+
+    val manifest = parseManifest("Fuel.toml")
+    val err = mapGet(manifest, "error")
+    if (err != null) {
+        println(stringConcat("error: ", toString(err)))
+        return
+    }
+
+    val packageInfo = mapGet(manifest, "package")
+    val name = toString(mapGet(packageInfo, "name"))
+    if (stringLength(name) == 0) {
+        println("error: missing 'name' in [package] section of Fuel.toml")
+        return
+    }
+
+    val entryPoint = "src/main.rok"
+    if (fileExists(entryPoint) == false) {
+        println(stringConcat("error: entry point not found: ", entryPoint))
+        return
+    }
+
+    // Create build directory
+    systemExec("mkdir -p build")
+
+    // Find compiler
+    var compilerPath: String = findFlag(args, "--compiler-path")
+    if (stringLength(compilerPath) == 0) {
+        compilerPath = "command"
+    }
+
+    // Find runtime
+    val runtimePath = findFlag(args, "--runtime-path")
+
+    // Build command
+    var cmd: String = stringConcat(compilerPath, " build-native ")
+    cmd = stringConcat(cmd, stringConcat(entryPoint, " -o "))
+    cmd = stringConcat(cmd, stringConcat("build/", name))
+    if (stringLength(runtimePath) > 0) {
+        cmd = stringConcat(cmd, stringConcat(" --runtime-path ", runtimePath))
+    }
+
+    println(stringConcat("Building ", stringConcat(name, "...")))
+    val exitCode = systemExec(cmd)
+    if (exitCode != 0) {
+        println("error: build failed")
+        return
+    }
+    println(stringConcat("Built: build/", name))
+}
+
+fun cmdRun(args: List): Unit {
+    cmdBuild(args)
+
+    if (fileExists("Fuel.toml") == false) { return }
+    val manifest = parseManifest("Fuel.toml")
+    val packageInfo = mapGet(manifest, "package")
+    val name = toString(mapGet(packageInfo, "name"))
+    val binaryPath = stringConcat("build/", name)
+
+    if (fileExists(binaryPath) == false) {
+        return
+    }
+
+    println("")
+    systemExec(stringConcat("./", binaryPath))
+}
+
+fun cmdVersion(): Unit {
+    println(stringConcat("fuel ", FUEL_VERSION()))
+}
+
+fun cmdHelp(): Unit {
+    println(stringConcat("fuel ", FUEL_VERSION()))
+    println("The Rockit package manager")
+    println("")
+    println("USAGE:")
+    println("    fuel <command> [options]")
+    println("")
+    println("COMMANDS:")
+    println("    init [name]    Create a new Rockit project")
+    println("    build          Compile the project")
+    println("    run            Build and run the project")
+    println("    version        Print version info")
+    println("    help           Print this help message")
+    println("")
+    println("OPTIONS:")
+    println("    --compiler-path <path>    Path to the Rockit compiler")
+    println("    --runtime-path <path>     Path to rockit_runtime.c")
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+fun main(): Unit {
+    val args = processArgs()
+
+    if (listSize(args) < 1) {
+        cmdHelp()
+        return
+    }
+
+    val command = toString(listGet(args, 0))
+
+    // Collect remaining args
+    val restArgs = listCreate()
+    var i: Int = 1
+    while (i < listSize(args)) {
+        listAppend(restArgs, listGet(args, i))
+        i = i + 1
+    }
+
+    if (command == "init") {
+        cmdInit(restArgs)
+    } else if (command == "build") {
+        cmdBuild(restArgs)
+    } else if (command == "run") {
+        cmdRun(restArgs)
+    } else if (command == "version" || command == "--version" || command == "-v") {
+        cmdVersion()
+    } else if (command == "help" || command == "--help" || command == "-h") {
+        cmdHelp()
+    } else {
+        println(stringConcat("error: unknown command '", stringConcat(command, "'")))
+        println("Run 'fuel help' for usage information.")
+    }
+}
