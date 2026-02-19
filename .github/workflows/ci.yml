@@ -9,14 +9,9 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
-    container: swift:5.10.1-jammy
+    container: rustygits.com/dark-matter/rockit-builder:latest
 
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y git clang-15
-          ln -sf /usr/bin/clang-15 /usr/bin/clang
-
       - name: Checkout Fuel
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -27,24 +22,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Checkout RockitCompiler
-        run: |
-          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
-          chmod 600 ~/.netrc
-          git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
-        env:
-          FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
-
-      - name: Build Stage 1 compiler
-        run: |
-          cd /tmp/rockit-compiler/RockitCompiler
-          swift run rockit build-native Stage1/command.rok
-
       - name: Build Fuel
-        run: |
-          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
+        run: $ROCKIT_COMPILER build-native src/fuel.rok -o fuel --runtime-path $ROCKIT_RUNTIME
 
       - name: Test — fuel version
         run: ./fuel version | grep -q "0.1.0"
@@ -64,17 +43,13 @@ jobs:
       - name: Test — fuel build
         run: |
           cd /tmp/test-project
-          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $GITHUB_WORKSPACE/fuel build --compiler-path $COMPILER --runtime-path $RUNTIME
+          $GITHUB_WORKSPACE/fuel build --compiler-path $ROCKIT_COMPILER --runtime-path $ROCKIT_RUNTIME
           test -f build/test-project
 
       - name: Test — fuel run
         run: |
           cd /tmp/test-project
-          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
+          $GITHUB_WORKSPACE/fuel run --compiler-path $ROCKIT_COMPILER --runtime-path $ROCKIT_RUNTIME 2>&1 | grep -q "Hello, Rockit!"
 
       - name: Test — error no Fuel.toml
         run: |

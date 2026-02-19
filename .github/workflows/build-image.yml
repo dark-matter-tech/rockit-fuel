@@ -1,0 +1,37 @@
+name: Build CI Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Build compiler image
+        run: |
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/moon
+          cd /tmp/moon/RockitCompiler
+          docker build -t rustygits.com/dark-matter/rockit-builder:latest -f- . <<'DOCKERFILE'
+          FROM swift:5.10.1-jammy
+          RUN apt-get update && apt-get install -y git clang-15 \
+              && ln -sf /usr/bin/clang-15 /usr/bin/clang \
+              && rm -rf /var/lib/apt/lists/*
+          COPY . /opt/rockit/RockitCompiler
+          RUN cd /opt/rockit/RockitCompiler \
+              && swift run rockit build-native Stage1/command.rok
+          ENV ROCKIT_COMPILER=/opt/rockit/RockitCompiler/Stage1/command
+          ENV ROCKIT_RUNTIME=/opt/rockit/RockitCompiler/Runtime/rockit_runtime.c
+          DOCKERFILE
+          rm -f ~/.netrc
+        env:
+          FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
+
+      - name: Push image to registry
+        run: |
+          echo "${FUEL_TOKEN}" | docker login rustygits.com -u burnside --password-stdin
+          docker push rustygits.com/dark-matter/rockit-builder:latest
+        env:
+          FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
