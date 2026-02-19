@@ -227,10 +227,10 @@ fun cmdBuild(args: List): Unit {
     // Find compiler
     var compilerPath: String = findFlag(args, "--compiler-path")
     if (stringLength(compilerPath) == 0) {
-        compilerPath = "command"
+        compilerPath = "rockit"
     }
 
-    // Find runtime
+    // Find runtime (only pass through if explicitly provided)
     val runtimePath = findFlag(args, "--runtime-path")
 
     // Build command
