@@ -6,30 +6,20 @@ on:
   pull_request:
     branches: [develop, staging, master]
 
+env:
+  ROCKIT_COMPILER: command
+  ROCKIT_RUNTIME: /usr/local/lib/rockit/rockit_runtime.c
+
 jobs:
   build-and-test:
     runs-on: macos-latest
     steps:
-      - name: Checkout Fuel
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Checkout RockitCompiler
-        uses: actions/checkout@v4
-        with:
-          repository: Dark-Matter/moon
-          path: rockit-compiler
-          token: ${{ secrets.REPO_TOKEN }}
-
-      - name: Build Stage 1 compiler
-        run: |
-          cd rockit-compiler/RockitCompiler
-          swift run rockit build-native Stage1/command.rok
 
       - name: Build Fuel
         run: |
-          COMPILER="rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
+          $ROCKIT_COMPILER build-native src/fuel.rok -o fuel --runtime-path $ROCKIT_RUNTIME
 
       - name: Test — fuel version
         run: ./fuel version | grep -q "0.1.0"
@@ -49,17 +39,13 @@ jobs:
       - name: Test — fuel build
         run: |
           cd /tmp/test-project
-          COMPILER="$GITHUB_WORKSPACE/rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="$GITHUB_WORKSPACE/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $GITHUB_WORKSPACE/fuel build --compiler-path $COMPILER --runtime-path $RUNTIME
+          $GITHUB_WORKSPACE/fuel build
           test -f build/test-project
 
       - name: Test — fuel run
         run: |
           cd /tmp/test-project
-          COMPILER="$GITHUB_WORKSPACE/rockit-compiler/RockitCompiler/Stage1/command"
-          RUNTIME="$GITHUB_WORKSPACE/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
-          $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
+          $GITHUB_WORKSPACE/fuel run 2>&1 | grep -q "Hello, Rockit!"
 
       - name: Test — error no Fuel.toml
         run: |
