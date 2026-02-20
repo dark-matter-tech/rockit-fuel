@@ -117,7 +117,9 @@ jobs:
       # --- add ---
 
       - name: Test — add — no args error
-        run: $GITHUB_WORKSPACE/fuel add 2>&1 | grep -q "package name required"
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add 2>&1 | grep -q "package name required"
 
       - name: Test — add — missing source error
         run: |
@@ -145,7 +147,9 @@ jobs:
           ! grep -q "locallib" Fuel.toml
 
       - name: Test — remove — no args error
-        run: $GITHUB_WORKSPACE/fuel remove 2>&1 | grep -q "package name required"
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove 2>&1 | grep -q "package name required"
 
       - name: Test — remove — nonexistent dependency
         run: |
