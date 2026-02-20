@@ -49,13 +49,32 @@ jobs:
       - name: Test — rockit version
         run: /tmp/rockit-compiler/RockitCompiler/Stage1/command version
 
-      - name: Test — fuel version
-        run: ./fuel version | grep -q "0.1.0"
+      # --- version / help ---
 
-      - name: Test — fuel help
-        run: ./fuel help
+      - name: Test — version
+        run: ./fuel version | grep -q "0.2.0"
 
-      - name: Test — fuel init
+      - name: Test — --version alias
+        run: ./fuel --version | grep -q "0.2.0"
+
+      - name: Test — -v alias
+        run: ./fuel -v | grep -q "0.2.0"
+
+      - name: Test — help
+        run: ./fuel help | grep -q "USAGE:"
+
+      - name: Test — --help alias
+        run: ./fuel --help | grep -q "USAGE:"
+
+      - name: Test — -h alias
+        run: ./fuel -h | grep -q "USAGE:"
+
+      - name: Test — no args shows help
+        run: ./fuel | grep -q "USAGE:"
+
+      # --- init ---
+
+      - name: Test — init
         run: |
           cd /tmp
           $GITHUB_WORKSPACE/fuel init test-project
@@ -64,7 +83,9 @@ jobs:
           test -f test-project/README.md
           grep -q "test-project" test-project/Fuel.toml
 
-      - name: Test — fuel build
+      # --- build / run / clean ---
+
+      - name: Test — build
         run: |
           cd /tmp/test-project
           COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
@@ -72,24 +93,76 @@ jobs:
           $GITHUB_WORKSPACE/fuel build --compiler-path $COMPILER --runtime-path $RUNTIME
           test -f build/test-project
 
-      - name: Test — fuel run
+      - name: Test — run
         run: |
           cd /tmp/test-project
           COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
           RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
           $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
 
-      - name: Test — fuel clean
+      - name: Test — clean
         run: |
           cd /tmp/test-project
           test -d build
           $GITHUB_WORKSPACE/fuel clean
           test ! -d build
 
-      - name: Test — error no Fuel.toml
+      # --- install ---
+
+      - name: Test — install — no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel install 2>&1 | grep -q "No dependencies to install"
+
+      # --- add ---
+
+      - name: Test — add — no args error
+        run: $GITHUB_WORKSPACE/fuel add 2>&1 | grep -q "package name required"
+
+      - name: Test — add — missing source error
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add mylib 2>&1 | grep -q "\-\-git"
+
+      - name: Test — add — local path dependency
+        run: |
+          mkdir -p /tmp/local-pkg/src
+          cat > /tmp/local-pkg/Fuel.toml << 'TOML'
+          [package]
+          name = local-pkg
+          version = 0.1.0
+          TOML
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add locallib --path /tmp/local-pkg
+          grep -q "locallib" Fuel.toml
+
+      # --- remove ---
+
+      - name: Test — remove — existing dependency
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove locallib 2>&1 | grep -q "Removed locallib"
+          ! grep -q "locallib" Fuel.toml
+
+      - name: Test — remove — no args error
+        run: $GITHUB_WORKSPACE/fuel remove 2>&1 | grep -q "package name required"
+
+      - name: Test — remove — nonexistent dependency
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove nonexistent 2>&1 | grep -q "not found"
+
+      # --- cache-clean ---
+
+      - name: Test — cache-clean
+        run: $GITHUB_WORKSPACE/fuel cache-clean 2>&1 | grep -q "Cleaned package cache"
+
+      # --- error cases ---
+
+      - name: Test — error — no Fuel.toml
         run: |
           cd /tmp
           $GITHUB_WORKSPACE/fuel build 2>&1 | grep -q "Fuel.toml"
 
-      - name: Test — error unknown command
+      - name: Test — error — unknown command
         run: ./fuel badcommand 2>&1 | grep -q "unknown command"
