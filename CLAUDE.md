@@ -116,6 +116,10 @@ cd /tmp/test-project && ./fuel run --compiler-path ... --runtime-path ...
 
 `develop` → `staging` → `master`. All work starts on `develop`.
 
+## Distribution
+
+Fuel is bundled with Rockit releases. The `moon` repo's release workflow (`release.yml`) clones this repo, compiles `src/fuel.rok` with the Stage 1 compiler, and packages the `fuel` binary alongside `rockit` in the release tarball.
+
 ## Related Projects
 
 - **RockitCompiler** (`moon` repo) — The Rockit compiler
