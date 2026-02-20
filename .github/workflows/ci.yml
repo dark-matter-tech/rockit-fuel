@@ -52,16 +52,22 @@ jobs:
       # --- version / help ---
 
       - name: Test — version
-        run: ./fuel version | grep -q "0.2.0"
+        run: ./fuel version | grep -q "0.3.0"
 
       - name: Test — --version alias
-        run: ./fuel --version | grep -q "0.2.0"
+        run: ./fuel --version | grep -q "0.3.0"
 
       - name: Test — -v alias
-        run: ./fuel -v | grep -q "0.2.0"
+        run: ./fuel -v | grep -q "0.3.0"
 
       - name: Test — help
         run: ./fuel help | grep -q "USAGE:"
+
+      - name: Test — help — lists update command
+        run: ./fuel help | grep -q "update"
+
+      - name: Test — help — lists list command
+        run: ./fuel help | grep -q "list"
 
       - name: Test — --help alias
         run: ./fuel --help | grep -q "USAGE:"
@@ -113,6 +119,20 @@ jobs:
         run: |
           cd /tmp/test-project
           $GITHUB_WORKSPACE/fuel install 2>&1 | grep -q "No dependencies to install"
+
+      # --- list ---
+
+      - name: Test — list — no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel list 2>&1 | grep -q "No dependencies"
+
+      # --- update ---
+
+      - name: Test — update — no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel update 2>&1 | grep -q "No dependencies to update"
 
       # --- add ---
 

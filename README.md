@@ -70,12 +70,62 @@ Build and run the project.
 fuel run
 ```
 
+### fuel install
+
+Resolve and fetch all dependencies declared in `Fuel.toml`. Writes `fuel.lock` for reproducible builds.
+
+```bash
+fuel install
+```
+
+### fuel add \<package\>
+
+Add a dependency to `Fuel.toml` and install it.
+
+```bash
+fuel add json --git https://example.com/json.git --version "^1.0"
+fuel add utils --path ../my-utils
+```
+
+### fuel remove \<package\>
+
+Remove a dependency from `Fuel.toml`.
+
+```bash
+fuel remove json
+```
+
+### fuel update [package]
+
+Update dependencies to the latest versions matching their constraints. Optionally update a single package.
+
+```bash
+fuel update          # update all
+fuel update json     # update only json
+```
+
+### fuel list
+
+List project dependencies and their status.
+
+```bash
+fuel list
+```
+
 ### fuel clean
 
 Remove build artifacts.
 
 ```bash
 fuel clean
+```
+
+### fuel cache-clean
+
+Clear the global package cache (`~/.rockit/packages/`).
+
+```bash
+fuel cache-clean
 ```
 
 ### fuel version
@@ -123,7 +173,12 @@ description = A Rockit project
 
 ### [dependencies]
 
-Dependencies will be listed as `name = source` pairs. Format TBD — git URLs with version tags planned for first release.
+```toml
+[dependencies]
+json = "^1.0.0"
+http = { version = "~2.1", git = "https://example.com/http.git" }
+utils = { path = "../my-utils" }
+```
 
 ## Architecture
 
@@ -152,6 +207,11 @@ Fuel is written in Rockit and compiled to a native binary with the Stage 1 compi
 - [x] Package cache (`~/.rockit/packages/`)
 - [x] `fuel cache-clean` — Clear the global package cache
 - [x] Windows support
+- [x] `fuel update` — Update dependencies to latest matching versions
+- [x] `fuel list` — List project dependencies with status
+- [x] Transitive dependency resolution with cycle detection
+- [x] Lock file integrity verification (commit hash)
+- [x] Exit codes for error conditions
 
 ### Next
 - [ ] Standard library (`stdlib/rockit/`)

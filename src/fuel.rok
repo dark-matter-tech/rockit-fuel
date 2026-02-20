@@ -5,7 +5,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-fun FUEL_VERSION(): String { return "0.2.0" }
+fun FUEL_VERSION(): String { return "0.3.0" }
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -110,6 +110,17 @@ fun hasFlag(args: List, flag: String): Bool {
 
 fun stringContains(s: String, sub: String): Bool {
     return stringIndexOf(s, sub) >= 0
+}
+
+fun listContainsString(list: List, s: String): Bool {
+    var i: Int = 0
+    while (i < listSize(list)) {
+        if (toString(listGet(list, i)) == s) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
 }
 
 fun stripQuotes(s: String): String {
@@ -807,6 +818,12 @@ fun fetchPackage(gitURL: String, tag: String, destDir: String): Bool {
     return exitCode == 0
 }
 
+fun getPackageCommitHash(pkgDir: String): String {
+    val cmd = stringConcat("git -C ", stringConcat(pkgDir, " rev-parse HEAD"))
+    val hash = stringTrim(captureExec(cmd))
+    return hash
+}
+
 // ---------------------------------------------------------------------------
 // Dependency Resolver
 // ---------------------------------------------------------------------------
@@ -852,18 +869,37 @@ fun resolveOneDep(name: String, depSpec: Map, lockFile: Map): Map {
         if (satisfiesConstraint(locked, constraint)) {
             val verStr = versionString(locked)
             if (isPackageCached(name, verStr)) {
-                val pkgDir = packageCacheDir(name, verStr)
-                mapPut(result, "dir", stringConcat(pkgDir, "/src"))
-                mapPut(result, "status", "ok")
-                mapPut(result, "type", "locked")
-                mapPut(result, "name", name)
-                mapPut(result, "major", mapGet(locked, "major"))
-                mapPut(result, "minor", mapGet(locked, "minor"))
-                mapPut(result, "patch", mapGet(locked, "patch"))
-                mapPut(result, "git", toString(mapGet(locked, "git")))
-                mapPut(result, "commit", toString(mapGet(locked, "commit")))
-                println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(verStr, " (locked)")))))
-                return result
+                // Verify commit hash integrity
+                var verified: Bool = true
+                val expectedCommit = mapGet(locked, "commit")
+                if (expectedCommit != null) {
+                    if (stringLength(toString(expectedCommit)) > 0) {
+                        val pkgDirCheck = packageCacheDir(name, verStr)
+                        val actualCommit = getPackageCommitHash(pkgDirCheck)
+                        if (stringLength(actualCommit) > 0) {
+                            if (actualCommit != toString(expectedCommit)) {
+                                println(stringConcat("  warning: ", stringConcat(name, " cache integrity mismatch, re-fetching")))
+                                verified = false
+                            }
+                        }
+                    }
+                }
+
+                if (verified) {
+                    val pkgDir = packageCacheDir(name, verStr)
+                    mapPut(result, "dir", stringConcat(pkgDir, "/src"))
+                    mapPut(result, "status", "ok")
+                    mapPut(result, "type", "locked")
+                    mapPut(result, "name", name)
+                    mapPut(result, "major", mapGet(locked, "major"))
+                    mapPut(result, "minor", mapGet(locked, "minor"))
+                    mapPut(result, "patch", mapGet(locked, "patch"))
+                    mapPut(result, "git", toString(mapGet(locked, "git")))
+                    mapPut(result, "commit", toString(mapGet(locked, "commit")))
+                    println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(verStr, " (locked)")))))
+                    return result
+                }
+                // Falls through to re-resolve from git
             }
         }
     }
@@ -913,29 +949,198 @@ fun resolveOneDep(name: String, depSpec: Map, lockFile: Map): Map {
     return result
 }
 
-fun resolveDependencies(): List {
-    val result = listCreate()
+fun resolveOneDepFresh(name: String, depSpec: Map): Map {
+    val result = mapCreate()
+
+    val versionVal = mapGet(depSpec, "version")
+    var versionStr: String = ""
+    if (versionVal != null) { versionStr = toString(versionVal) }
+
+    val gitVal = mapGet(depSpec, "git")
+    var gitURL: String = ""
+    if (gitVal != null) { gitURL = toString(gitVal) }
+
+    if (stringLength(gitURL) == 0) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no git URL for dependency: ", name))
+        return result
+    }
+
+    val constraint = parseConstraint(versionStr)
+
+    // Always discover versions fresh (no lock file check)
+    val versions = discoverVersions(gitURL)
+    if (listSize(versions) == 0) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no version tags found for: ", name))
+        return result
+    }
+
+    val best = bestMatchVersion(versions, constraint)
+    if (isValidVersion(best) == false) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no version satisfies ", stringConcat(versionStr, stringConcat(" for: ", name))))
+        return result
+    }
+
+    val verStr = versionString(best)
+    val tag = toString(mapGet(best, "tag"))
+    val hash = toString(mapGet(best, "hash"))
+    val pkgDir = packageCacheDir(name, verStr)
+
+    // Fetch if not cached
+    if (isPackageCached(name, verStr) == false) {
+        println(stringConcat("  Fetching ", stringConcat(name, stringConcat(" ", stringConcat(verStr, "...")))))
+        val ok = fetchPackage(gitURL, tag, pkgDir)
+        if (ok == false) {
+            mapPut(result, "status", "error")
+            mapPut(result, "message", stringConcat("failed to fetch: ", stringConcat(name, stringConcat(" ", verStr))))
+            return result
+        }
+    }
+
+    mapPut(result, "dir", stringConcat(pkgDir, "/src"))
+    mapPut(result, "status", "ok")
+    mapPut(result, "name", name)
+    mapPut(result, "major", mapGet(best, "major"))
+    mapPut(result, "minor", mapGet(best, "minor"))
+    mapPut(result, "patch", mapGet(best, "patch"))
+    mapPut(result, "git", gitURL)
+    mapPut(result, "commit", hash)
+    return result
+}
+
+fun resolveDepRecursive(name: String, depSpec: Map, lockFile: Map, resolvedMap: Map, resolutionStack: List): Bool {
+    // Cycle detection
+    if (listContainsString(resolutionStack, name)) {
+        println(stringConcat("error: dependency cycle detected involving: ", name))
+        return false
+    }
+
+    // Already resolved?
+    val existing = mapGet(resolvedMap, name)
+    if (existing != null) {
+        // Check version compatibility
+        val versionVal = mapGet(depSpec, "version")
+        var versionStr: String = "*"
+        if (versionVal != null) { versionStr = toString(versionVal) }
+        val constraint = parseConstraint(versionStr)
+        if (satisfiesConstraint(existing, constraint)) {
+            return true
+        } else {
+            val existingVer = versionString(existing)
+            println(stringConcat("error: version conflict for ", stringConcat(name, stringConcat(": ", stringConcat(existingVer, stringConcat(" does not satisfy ", versionStr))))))
+            return false
+        }
+    }
+
+    // Push onto resolution stack
+    listAppend(resolutionStack, name)
+
+    // Resolve this dep
+    val resolved = resolveOneDep(name, depSpec, lockFile)
+    val status = toString(mapGet(resolved, "status"))
+
+    if (status != "ok") {
+        val msg = toString(mapGet(resolved, "message"))
+        println(stringConcat("error: ", msg))
+        listRemoveAt(resolutionStack, listSize(resolutionStack) - 1)
+        return false
+    }
+
+    // Store in resolved map
+    mapPut(resolvedMap, name, resolved)
+
+    // Check if this package has its own dependencies
+    var subDepsOk: Bool = true
+    val rType = toString(mapGet(resolved, "type"))
+
+    if (rType == "local") {
+        val pathVal = mapGet(depSpec, "path")
+        if (pathVal != null) {
+            val subManifestPath = stringConcat(toString(pathVal), "/Fuel.toml")
+            if (fileExists(subManifestPath)) {
+                val subManifest = parseManifest(subManifestPath)
+                val subErr = mapGet(subManifest, "error")
+                if (subErr == null) {
+                    val subDeps = mapGet(subManifest, "dependencies")
+                    if (subDeps != null) {
+                        val subDepKeys = mapKeys(subDeps)
+                        var j: Int = 0
+                        while (j < listSize(subDepKeys)) {
+                            val subName = toString(listGet(subDepKeys, j))
+                            val subSpec = mapGet(subDeps, subName)
+                            val subOk = resolveDepRecursive(subName, subSpec, lockFile, resolvedMap, resolutionStack)
+                            if (subOk == false) {
+                                subDepsOk = false
+                            }
+                            j = j + 1
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Git dependency — check Fuel.toml in cached package
+        val verStr = versionString(resolved)
+        val pkgDir = packageCacheDir(name, verStr)
+        val subManifestPath = stringConcat(pkgDir, "/Fuel.toml")
+        if (fileExists(subManifestPath)) {
+            val subManifest = parseManifest(subManifestPath)
+            val subErr = mapGet(subManifest, "error")
+            if (subErr == null) {
+                val subDeps = mapGet(subManifest, "dependencies")
+                if (subDeps != null) {
+                    val subDepKeys = mapKeys(subDeps)
+                    var j: Int = 0
+                    while (j < listSize(subDepKeys)) {
+                        val subName = toString(listGet(subDepKeys, j))
+                        val subSpec = mapGet(subDeps, subName)
+                        val subOk = resolveDepRecursive(subName, subSpec, lockFile, resolvedMap, resolutionStack)
+                        if (subOk == false) {
+                            subDepsOk = false
+                        }
+                        j = j + 1
+                    }
+                }
+            }
+        }
+    }
+
+    // Pop from resolution stack
+    listRemoveAt(resolutionStack, listSize(resolutionStack) - 1)
+
+    return subDepsOk
+}
+
+fun resolveDependencies(): Map {
+    val outcome = mapCreate()
+    val dirs = listCreate()
+    mapPut(outcome, "dirs", dirs)
+    mapPut(outcome, "status", "ok")
 
     if (fileExists("Fuel.toml") == false) {
-        return result
+        return outcome
     }
 
     val manifest = parseManifest("Fuel.toml")
     val err = mapGet(manifest, "error")
     if (err != null) {
         println(stringConcat("error: ", toString(err)))
-        return result
+        mapPut(outcome, "status", "error")
+        return outcome
     }
 
     val deps = mapGet(manifest, "dependencies")
     val depKeys = mapKeys(deps)
     if (listSize(depKeys) == 0) {
-        return result
+        return outcome
     }
 
     // Load existing lock file
     val lockFile = parseLockFile("fuel.lock")
-    val resolvedPackages = listCreate()
+    val resolvedMap = mapCreate()
+    val resolutionStack = listCreate()
     var hasError: Bool = false
 
     println("Resolving dependencies...")
@@ -943,47 +1148,72 @@ fun resolveDependencies(): List {
     while (i < listSize(depKeys)) {
         val name = toString(listGet(depKeys, i))
         val depSpec = mapGet(deps, name)
-        val resolved = resolveOneDep(name, depSpec, lockFile)
-        val status = toString(mapGet(resolved, "status"))
-
-        if (status == "ok") {
-            listAppend(result, toString(mapGet(resolved, "dir")))
-            val rType = toString(mapGet(resolved, "type"))
-            if (rType != "local") {
-                // Build lock entry
-                val lockEntry = mapCreate()
-                mapPut(lockEntry, "name", name)
-                mapPut(lockEntry, "major", mapGet(resolved, "major"))
-                mapPut(lockEntry, "minor", mapGet(resolved, "minor"))
-                mapPut(lockEntry, "patch", mapGet(resolved, "patch"))
-                mapPut(lockEntry, "git", mapGet(resolved, "git"))
-                mapPut(lockEntry, "commit", mapGet(resolved, "commit"))
-                mapPut(lockEntry, "dependencies", listCreate())
-                listAppend(resolvedPackages, lockEntry)
-            }
-        } else {
-            val msg = toString(mapGet(resolved, "message"))
-            println(stringConcat("error: ", msg))
+        val ok = resolveDepRecursive(name, depSpec, lockFile, resolvedMap, resolutionStack)
+        if (ok == false) {
             hasError = true
         }
         i = i + 1
     }
 
-    // Write lock file
-    if (hasError == false) {
-        if (listSize(resolvedPackages) > 0) {
-            writeLockFile(resolvedPackages)
-        }
+    if (hasError) {
+        mapPut(outcome, "status", "error")
+        return outcome
     }
 
-    return result
+    // Build result dirs list and lock entries from resolvedMap
+    val resolvedPackages = listCreate()
+    val allNames = mapKeys(resolvedMap)
+    var j: Int = 0
+    while (j < listSize(allNames)) {
+        val name = toString(listGet(allNames, j))
+        val resolved = mapGet(resolvedMap, name)
+        listAppend(dirs, toString(mapGet(resolved, "dir")))
+
+        val rType = toString(mapGet(resolved, "type"))
+        if (rType != "local") {
+            val lockEntry = mapCreate()
+            mapPut(lockEntry, "name", name)
+            mapPut(lockEntry, "major", mapGet(resolved, "major"))
+            mapPut(lockEntry, "minor", mapGet(resolved, "minor"))
+            mapPut(lockEntry, "patch", mapGet(resolved, "patch"))
+            mapPut(lockEntry, "git", mapGet(resolved, "git"))
+            mapPut(lockEntry, "commit", mapGet(resolved, "commit"))
+
+            // Record this package's own dependencies in lock entry
+            val verStr = versionString(resolved)
+            val pkgDir = packageCacheDir(name, verStr)
+            val subManifestPath = stringConcat(pkgDir, "/Fuel.toml")
+            val subDepNames = listCreate()
+            if (fileExists(subManifestPath)) {
+                val subManifest = parseManifest(subManifestPath)
+                val subDeps = mapGet(subManifest, "dependencies")
+                if (subDeps != null) {
+                    val subKeys = mapKeys(subDeps)
+                    var k: Int = 0
+                    while (k < listSize(subKeys)) {
+                        listAppend(subDepNames, listGet(subKeys, k))
+                        k = k + 1
+                    }
+                }
+            }
+            mapPut(lockEntry, "dependencies", subDepNames)
+            listAppend(resolvedPackages, lockEntry)
+        }
+        j = j + 1
+    }
+
+    if (listSize(resolvedPackages) > 0) {
+        writeLockFile(resolvedPackages)
+    }
+
+    return outcome
 }
 
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
-fun cmdInit(args: List): Unit {
+fun cmdInit(args: List): Bool {
     var name: String = ""
     if (listSize(args) > 0) {
         name = toString(listGet(args, 0))
@@ -997,7 +1227,7 @@ fun cmdInit(args: List): Unit {
         name = stringTrim(readLine())
         if (stringLength(name) == 0) {
             println("error: project name is required")
-            return
+            return false
         }
     }
 
@@ -1012,7 +1242,7 @@ fun cmdInit(args: List): Unit {
     val exitCode = systemExec(mkdirCmd)
     if (exitCode != 0) {
         println(stringConcat("error: failed to create directory: ", name))
-        return
+        return false
     }
 
     // Write Fuel.toml
@@ -1040,16 +1270,23 @@ fun cmdInit(args: List): Unit {
     println(stringConcat("    cd ", name))
     println("    fuel build")
     println("    fuel run")
+    return true
 }
 
-fun cmdInstall(args: List): Unit {
+fun cmdInstall(args: List): Bool {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
         println("Run 'fuel init <name>' to create a new project.")
-        return
+        return false
     }
 
-    val resolved = resolveDependencies()
+    val outcome = resolveDependencies()
+    val status = toString(mapGet(outcome, "status"))
+    if (status == "error") {
+        return false
+    }
+
+    val resolved = mapGet(outcome, "dirs")
     if (listSize(resolved) == 0) {
         val manifest = parseManifest("Fuel.toml")
         val deps = mapGet(manifest, "dependencies")
@@ -1060,27 +1297,28 @@ fun cmdInstall(args: List): Unit {
     } else {
         println(stringConcat("Installed ", stringConcat(toString(listSize(resolved)), " dependencies.")))
     }
+    return true
 }
 
-fun cmdAdd(args: List): Unit {
+fun cmdAdd(args: List): Bool {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
         println("Run 'fuel init <name>' to create a new project.")
-        return
+        return false
     }
 
     // Parse: fuel add <name> --git <url> [--version "^1.0"]
     if (listSize(args) == 0) {
         println("error: package name required")
         println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
-        return
+        return false
     }
 
     val name = toString(listGet(args, 0))
     if (startsWith(name, "-")) {
         println("error: package name required (got flag)")
         println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
-        return
+        return false
     }
 
     val gitURL = findFlag(args, "--git")
@@ -1094,7 +1332,7 @@ fun cmdAdd(args: List): Unit {
         if (stringLength(localPath) == 0) {
             println("error: --git <url> or --path <dir> required")
             println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
-            return
+            return false
         }
     }
 
@@ -1112,70 +1350,295 @@ fun cmdAdd(args: List): Unit {
     println(stringConcat("Added ", stringConcat(name, " to Fuel.toml")))
 
     // Install the new dependency
-    resolveDependencies()
+    val outcome = resolveDependencies()
+    val status = toString(mapGet(outcome, "status"))
+    if (status == "error") {
+        return false
+    }
+    return true
 }
 
-fun cmdRemove(args: List): Unit {
+fun cmdRemove(args: List): Bool {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
         println("Run 'fuel init <name>' to create a new project.")
-        return
+        return false
     }
 
     if (listSize(args) == 0) {
         println("error: package name required")
         println("Usage: fuel remove <name>")
-        return
+        return false
     }
 
     val name = toString(listGet(args, 0))
     val removed = removeDependencyFromManifest(name)
     if (removed) {
         println(stringConcat("Removed ", stringConcat(name, " from Fuel.toml")))
+        return true
     } else {
         println(stringConcat("error: dependency '", stringConcat(name, "' not found in Fuel.toml")))
+        return false
     }
 }
 
-fun cmdCacheClean(): Unit {
-    val dir = cacheDir()
-    val exitCode = systemExec(stringConcat("rm -rf ", dir))
-    if (exitCode == 0) {
-        println(stringConcat("Cleaned package cache: ", dir))
-    } else {
-        println("error: failed to clean package cache")
-    }
-}
-
-fun cmdBuild(args: List): Unit {
+fun cmdUpdate(args: List): Bool {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
         println("Run 'fuel init <name>' to create a new project.")
-        return
+        return false
     }
 
     val manifest = parseManifest("Fuel.toml")
     val err = mapGet(manifest, "error")
     if (err != null) {
         println(stringConcat("error: ", toString(err)))
-        return
+        return false
+    }
+
+    val deps = mapGet(manifest, "dependencies")
+    val depKeys = mapKeys(deps)
+    if (listSize(depKeys) == 0) {
+        println("No dependencies to update.")
+        return true
+    }
+
+    // Check for specific package name
+    var targetName: String = ""
+    if (listSize(args) > 0) {
+        val first = toString(listGet(args, 0))
+        if (startsWith(first, "-") == false) {
+            targetName = first
+        }
+    }
+
+    // Load existing lock file for comparison / partial updates
+    val lockFile = parseLockFile("fuel.lock")
+    val resolvedPackages = listCreate()
+    var hasError: Bool = false
+    var updatedCount: Int = 0
+
+    println("Checking for updates...")
+    var i: Int = 0
+    while (i < listSize(depKeys)) {
+        val name = toString(listGet(depKeys, i))
+        val depSpec = mapGet(deps, name)
+
+        // Check if path dependency
+        val pathVal = mapGet(depSpec, "path")
+        var isPathDep: Bool = false
+        if (pathVal != null) {
+            if (stringLength(toString(pathVal)) > 0) {
+                isPathDep = true
+            }
+        }
+
+        if (isPathDep) {
+            println(stringConcat("  ", stringConcat(name, " (path dependency, skipped)")))
+        } else if (stringLength(targetName) > 0) {
+            if (name == targetName) {
+                // Update this specific dep — bypass lock file
+                val updateResult = resolveOneDepFresh(name, depSpec)
+                val status = toString(mapGet(updateResult, "status"))
+                if (status == "ok") {
+                    val locked = findLockedPackage(lockFile, name)
+                    val newVer = versionString(updateResult)
+                    var oldVer: String = "(none)"
+                    if (isValidVersion(locked)) {
+                        oldVer = versionString(locked)
+                    }
+                    if (oldVer != newVer) {
+                        println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(oldVer, stringConcat(" -> ", newVer))))))
+                        updatedCount = updatedCount + 1
+                    } else {
+                        println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(newVer, " (already latest)")))))
+                    }
+                    val lockEntry = mapCreate()
+                    mapPut(lockEntry, "name", name)
+                    mapPut(lockEntry, "major", mapGet(updateResult, "major"))
+                    mapPut(lockEntry, "minor", mapGet(updateResult, "minor"))
+                    mapPut(lockEntry, "patch", mapGet(updateResult, "patch"))
+                    mapPut(lockEntry, "git", mapGet(updateResult, "git"))
+                    mapPut(lockEntry, "commit", mapGet(updateResult, "commit"))
+                    mapPut(lockEntry, "dependencies", listCreate())
+                    listAppend(resolvedPackages, lockEntry)
+                } else {
+                    val msg = toString(mapGet(updateResult, "message"))
+                    println(stringConcat("error: ", msg))
+                    hasError = true
+                }
+            } else {
+                // Keep existing lock entry for non-targeted deps
+                val locked = findLockedPackage(lockFile, name)
+                if (isValidVersion(locked)) {
+                    listAppend(resolvedPackages, locked)
+                }
+            }
+        } else {
+            // Update all — bypass lock file
+            val updateResult = resolveOneDepFresh(name, depSpec)
+            val status = toString(mapGet(updateResult, "status"))
+            if (status == "ok") {
+                val locked = findLockedPackage(lockFile, name)
+                val newVer = versionString(updateResult)
+                var oldVer: String = "(none)"
+                if (isValidVersion(locked)) {
+                    oldVer = versionString(locked)
+                }
+                if (oldVer != newVer) {
+                    println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(oldVer, stringConcat(" -> ", newVer))))))
+                    updatedCount = updatedCount + 1
+                } else {
+                    println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(newVer, " (already latest)")))))
+                }
+                val lockEntry = mapCreate()
+                mapPut(lockEntry, "name", name)
+                mapPut(lockEntry, "major", mapGet(updateResult, "major"))
+                mapPut(lockEntry, "minor", mapGet(updateResult, "minor"))
+                mapPut(lockEntry, "patch", mapGet(updateResult, "patch"))
+                mapPut(lockEntry, "git", mapGet(updateResult, "git"))
+                mapPut(lockEntry, "commit", mapGet(updateResult, "commit"))
+                mapPut(lockEntry, "dependencies", listCreate())
+                listAppend(resolvedPackages, lockEntry)
+            } else {
+                val msg = toString(mapGet(updateResult, "message"))
+                println(stringConcat("error: ", msg))
+                hasError = true
+            }
+        }
+        i = i + 1
+    }
+
+    if (hasError == false) {
+        if (listSize(resolvedPackages) > 0) {
+            writeLockFile(resolvedPackages)
+        }
+    }
+
+    if (updatedCount == 0) {
+        println("All dependencies are up to date.")
+    } else {
+        println(stringConcat("Updated ", stringConcat(toString(updatedCount), " dependencies.")))
+    }
+    return hasError == false
+}
+
+fun cmdCacheClean(): Bool {
+    val dir = cacheDir()
+    val exitCode = systemExec(stringConcat("rm -rf ", dir))
+    if (exitCode == 0) {
+        println(stringConcat("Cleaned package cache: ", dir))
+        return true
+    } else {
+        println("error: failed to clean package cache")
+        return false
+    }
+}
+
+fun cmdList(args: List): Bool {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return false
+    }
+
+    val manifest = parseManifest("Fuel.toml")
+    val packageInfo = mapGet(manifest, "package")
+    val projectName = toString(mapGet(packageInfo, "name"))
+    val projectVersion = toString(mapGet(packageInfo, "version"))
+    println(stringConcat(projectName, stringConcat(" ", projectVersion)))
+
+    val deps = mapGet(manifest, "dependencies")
+    val depKeys = mapKeys(deps)
+    if (listSize(depKeys) == 0) {
+        println("No dependencies.")
+        return true
+    }
+
+    // Load lock file for resolved version info
+    val hasLock = fileExists("fuel.lock")
+    var lockFile: Map = mapCreate()
+    if (hasLock) {
+        lockFile = parseLockFile("fuel.lock")
+    }
+
+    var i: Int = 0
+    while (i < listSize(depKeys)) {
+        val name = toString(listGet(depKeys, i))
+        val depSpec = mapGet(deps, name)
+
+        // Get version constraint from manifest
+        val versionVal = mapGet(depSpec, "version")
+        var constraintStr: String = "*"
+        if (versionVal != null) {
+            constraintStr = toString(versionVal)
+        }
+
+        // Check if path dependency
+        val pathVal = mapGet(depSpec, "path")
+        var isPathDep: Bool = false
+        if (pathVal != null) {
+            if (stringLength(toString(pathVal)) > 0) {
+                isPathDep = true
+            }
+        }
+
+        if (isPathDep) {
+            println(stringConcat("  ", stringConcat(name, stringConcat(" (path: ", stringConcat(toString(pathVal), ")")))))
+        } else if (hasLock) {
+            val locked = findLockedPackage(lockFile, name)
+            if (isValidVersion(locked)) {
+                val verStr = versionString(locked)
+                val cached = isPackageCached(name, verStr)
+                if (cached) {
+                    println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(verStr, " (installed)")))))
+                } else {
+                    println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(verStr, " (not cached)")))))
+                }
+            } else {
+                println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(constraintStr, " (unresolved)")))))
+            }
+        } else {
+            println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(constraintStr, " (unresolved)")))))
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun cmdBuild(args: List): Bool {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return false
+    }
+
+    val manifest = parseManifest("Fuel.toml")
+    val err = mapGet(manifest, "error")
+    if (err != null) {
+        println(stringConcat("error: ", toString(err)))
+        return false
     }
 
     val packageInfo = mapGet(manifest, "package")
     val name = toString(mapGet(packageInfo, "name"))
     if (stringLength(name) == 0) {
         println("error: missing 'name' in [package] section of Fuel.toml")
-        return
+        return false
     }
 
     // Resolve dependencies first
-    val depDirs = resolveDependencies()
+    val outcome = resolveDependencies()
+    val depStatus = toString(mapGet(outcome, "status"))
+    if (depStatus == "error") {
+        return false
+    }
 
     val sep = pathSep()
     val entryPoint = stringConcat("src", stringConcat(sep, "main.rok"))
     if (fileExists(entryPoint) == false) {
         println(stringConcat("error: entry point not found: ", entryPoint))
-        return
+        return false
     }
 
     // Create build directory
@@ -1210,15 +1673,19 @@ fun cmdBuild(args: List): Unit {
     val exitCode = systemExec(cmd)
     if (exitCode != 0) {
         println("error: build failed")
-        return
+        return false
     }
     println(stringConcat("Built: build", stringConcat(sep, name)))
+    return true
 }
 
-fun cmdRun(args: List): Unit {
-    cmdBuild(args)
+fun cmdRun(args: List): Bool {
+    val buildOk = cmdBuild(args)
+    if (buildOk == false) {
+        return false
+    }
 
-    if (fileExists("Fuel.toml") == false) { return }
+    if (fileExists("Fuel.toml") == false) { return false }
     val manifest = parseManifest("Fuel.toml")
     val packageInfo = mapGet(manifest, "package")
     val name = toString(mapGet(packageInfo, "name"))
@@ -1229,7 +1696,7 @@ fun cmdRun(args: List): Unit {
     }
 
     if (fileExists(binaryPath) == false) {
-        return
+        return false
     }
 
     println("")
@@ -1238,16 +1705,17 @@ fun cmdRun(args: List): Unit {
     } else {
         systemExec(stringConcat("./", binaryPath))
     }
+    return true
 }
 
-fun cmdClean(): Unit {
+fun cmdClean(): Bool {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
-        return
+        return false
     }
     if (fileExists("build") == false) {
         println("Nothing to clean.")
-        return
+        return true
     }
     var cleanCmd: String = "rm -rf build"
     if (isWindows()) {
@@ -1256,9 +1724,10 @@ fun cmdClean(): Unit {
     val exitCode = systemExec(cleanCmd)
     if (exitCode != 0) {
         println("error: failed to remove build directory")
-        return
+        return false
     }
     println("Cleaned build/")
+    return true
 }
 
 fun cmdVersion(): Unit {
@@ -1277,6 +1746,8 @@ fun cmdHelp(): Unit {
     println("    install              Resolve and fetch all dependencies")
     println("    add <pkg> [opts]     Add a dependency")
     println("    remove <pkg>         Remove a dependency")
+    println("    update [pkg]         Update dependencies to latest versions")
+    println("    list                 List project dependencies")
     println("    build                Compile the project")
     println("    run                  Build and run the project")
     println("    clean                Remove build artifacts")
@@ -1316,22 +1787,27 @@ fun main(): Unit {
         i = i + 1
     }
 
+    var success: Bool = true
     if (command == "init") {
-        cmdInit(restArgs)
+        success = cmdInit(restArgs)
     } else if (command == "install") {
-        cmdInstall(restArgs)
+        success = cmdInstall(restArgs)
     } else if (command == "add") {
-        cmdAdd(restArgs)
+        success = cmdAdd(restArgs)
     } else if (command == "remove") {
-        cmdRemove(restArgs)
+        success = cmdRemove(restArgs)
+    } else if (command == "update") {
+        success = cmdUpdate(restArgs)
+    } else if (command == "list") {
+        success = cmdList(restArgs)
     } else if (command == "build") {
-        cmdBuild(restArgs)
+        success = cmdBuild(restArgs)
     } else if (command == "run") {
-        cmdRun(restArgs)
+        success = cmdRun(restArgs)
     } else if (command == "clean") {
-        cmdClean()
+        success = cmdClean()
     } else if (command == "cache-clean") {
-        cmdCacheClean()
+        success = cmdCacheClean()
     } else if (command == "version" || command == "--version" || command == "-v") {
         cmdVersion()
     } else if (command == "help" || command == "--help" || command == "-h") {
@@ -1339,5 +1815,10 @@ fun main(): Unit {
     } else {
         println(stringConcat("error: unknown command '", stringConcat(command, "'")))
         println("Run 'fuel help' for usage information.")
+        success = false
+    }
+
+    if (success == false) {
+        processExit(1)
     }
 }
