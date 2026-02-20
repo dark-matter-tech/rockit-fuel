@@ -23,15 +23,15 @@ Single file: `src/fuel.rok`
 | Section | What it does |
 |---------|-------------|
 | Constants | `FUEL_VERSION()` |
-| Utilities | `writeFile`, `stringSplit`, `dirName`, `baseName`, `findFlag`, `hasFlag`, `stringContains`, `stripQuotes`, `isAllDigits`, `captureExec`, `homeDir`, `cacheDir`, `ensureCacheDir` |
+| Utilities | `writeFile`, `stringSplit`, `dirName`, `baseName`, `findFlag`, `hasFlag`, `stringContains`, `listContainsString`, `stripQuotes`, `isAllDigits`, `captureExec`, `homeDir`, `cacheDir`, `ensureCacheDir` |
 | Version Parsing | `parseVersion`, `parseVersionLoose`, `isValidVersion`, `versionString`, `versionInt` |
 | Version Constraints | `parseConstraint`, `satisfiesConstraint`, `bestMatchVersion` |
 | Manifest Parser | `parseInlineTable`, `parseManifest`, `addDependencyToManifest`, `removeDependencyFromManifest` |
 | Lock File | `parseLockFile`, `findLockedPackage`, `serializeLockFile`, `writeLockFile` |
 | Package Cache | `packageCacheDir`, `isPackageCached` |
-| Git Operations | `discoverVersions`, `fetchPackage` |
-| Dependency Resolver | `resolveOneDep`, `resolveDependencies` |
-| Commands | `cmdInit`, `cmdInstall`, `cmdAdd`, `cmdRemove`, `cmdBuild`, `cmdRun`, `cmdClean`, `cmdCacheClean`, `cmdVersion`, `cmdHelp` |
+| Git Operations | `discoverVersions`, `fetchPackage`, `getPackageCommitHash` |
+| Dependency Resolver | `resolveOneDep`, `resolveOneDepFresh`, `resolveDepRecursive`, `resolveDependencies` |
+| Commands | `cmdInit`, `cmdInstall`, `cmdAdd`, `cmdRemove`, `cmdUpdate`, `cmdList`, `cmdBuild`, `cmdRun`, `cmdClean`, `cmdCacheClean`, `cmdVersion`, `cmdHelp` |
 | Main | `main()` dispatcher |
 
 ## Available Builtins
@@ -40,7 +40,7 @@ Only C runtime builtins (no stdlib imports):
 
 - **String**: `stringConcat`, `stringLength`, `substring`, `charAt`, `charCodeAt`, `stringIndexOf`, `startsWith`, `endsWith`, `stringTrim`, `toString`
 - **File I/O**: `fileRead`, `fileWriteBytes`, `fileExists`, `fileDelete`
-- **Process**: `processArgs`, `systemExec`, `getEnv`, `platformOS`
+- **Process**: `processArgs`, `processExit`, `systemExec`, `getEnv`, `platformOS`
 - **I/O**: `println`, `print`, `readLine`
 - **Collections**: `listCreate`, `listAppend`, `listGet`, `listSet`, `listSize`, `listContains`, `listRemoveAt`, `mapCreate`, `mapPut`, `mapGet`, `mapKeys`
 - **Type**: `toInt`, `isDigit`, `isLetter`, `isLetterOrDigit`
@@ -80,10 +80,13 @@ utils = { path = "../my-utils" }
 
 1. Parse `Fuel.toml` for `[dependencies]`
 2. If `fuel.lock` exists, prefer locked versions (if they still satisfy constraints)
-3. Otherwise: `git ls-remote --tags <url>` to discover available versions
-4. Pick highest version matching the constraint
-5. Shallow-clone into `~/.rockit/packages/<name>-<version>/`
-6. Write `fuel.lock`
+3. Verify lock file integrity — cached commit hash must match lock file
+4. Otherwise: `git ls-remote --tags <url>` to discover available versions
+5. Pick highest version matching the constraint
+6. Shallow-clone into `~/.rockit/packages/<name>-<version>/`
+7. Recursively resolve transitive dependencies (read fetched package's `Fuel.toml`)
+8. Detect dependency cycles and version conflicts
+9. Write `fuel.lock` with transitive dependency names
 
 ### Cache Layout
 
@@ -107,6 +110,8 @@ cd /tmp && ./fuel init test-project
 cd /tmp/test-project && ./fuel install
 cd /tmp/test-project && ./fuel add mylib --git <url> --version "^1.0"
 cd /tmp/test-project && ./fuel remove mylib
+cd /tmp/test-project && ./fuel update
+cd /tmp/test-project && ./fuel list
 ./fuel cache-clean
 cd /tmp/test-project && ./fuel build --compiler-path ... --runtime-path ...
 cd /tmp/test-project && ./fuel run --compiler-path ... --runtime-path ...
