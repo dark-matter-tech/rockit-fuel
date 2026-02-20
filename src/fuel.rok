@@ -5,7 +5,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-fun FUEL_VERSION(): String { return "0.1.0" }
+fun FUEL_VERSION(): String { return "0.2.0" }
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -97,9 +97,337 @@ fun findFlag(args: List, flag: String): String {
     return ""
 }
 
+fun hasFlag(args: List, flag: String): Bool {
+    var i: Int = 0
+    while (i < listSize(args)) {
+        if (toString(listGet(args, i)) == flag) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun stringContains(s: String, sub: String): Bool {
+    return stringIndexOf(s, sub) >= 0
+}
+
+fun stripQuotes(s: String): String {
+    val len = stringLength(s)
+    if (len >= 2) {
+        if (charAt(s, 0) == "\"") {
+            if (charAt(s, len - 1) == "\"") {
+                return substring(s, 1, len - 1)
+            }
+        }
+    }
+    return s
+}
+
+fun isAllDigits(s: String): Bool {
+    val len = stringLength(s)
+    if (len == 0) { return false }
+    var i: Int = 0
+    while (i < len) {
+        val c = charCodeAt(s, i)
+        if (c < 48 || c > 57) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fun captureExec(cmd: String): String {
+    val tmpFile = "/tmp/fuel_capture.txt"
+    val fullCmd = stringConcat(cmd, stringConcat(" > ", stringConcat(tmpFile, " 2>/dev/null")))
+    systemExec(fullCmd)
+    if (fileExists(tmpFile)) {
+        val content = toString(fileRead(tmpFile))
+        fileDelete(tmpFile)
+        return content
+    }
+    return ""
+}
+
+fun homeDir(): String {
+    val home = toString(getEnv("HOME"))
+    if (stringLength(home) > 0) { return home }
+    val userProfile = toString(getEnv("USERPROFILE"))
+    if (stringLength(userProfile) > 0) { return userProfile }
+    return ""
+}
+
+fun cacheDir(): String {
+    val home = homeDir()
+    return stringConcat(home, "/.rockit/packages")
+}
+
+fun ensureCacheDir(): Unit {
+    val dir = cacheDir()
+    systemExec(stringConcat("mkdir -p ", dir))
+}
+
 // ---------------------------------------------------------------------------
-// Manifest Parser
+// Version Parsing
 // ---------------------------------------------------------------------------
+
+fun parseVersion(s: String): Map {
+    val ver = mapCreate()
+    var str: String = stringTrim(s)
+    if (stringLength(str) == 0) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    if (charAt(str, 0) == "v") {
+        str = substring(str, 1, stringLength(str))
+    }
+    val parts = stringSplit(str, ".")
+    if (listSize(parts) != 3) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    val majorStr = stringTrim(toString(listGet(parts, 0)))
+    val minorStr = stringTrim(toString(listGet(parts, 1)))
+    val patchStr = stringTrim(toString(listGet(parts, 2)))
+    if (isAllDigits(majorStr) == false) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    if (isAllDigits(minorStr) == false) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    if (isAllDigits(patchStr) == false) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    mapPut(ver, "major", toInt(majorStr))
+    mapPut(ver, "minor", toInt(minorStr))
+    mapPut(ver, "patch", toInt(patchStr))
+    return ver
+}
+
+fun parseVersionLoose(s: String): Map {
+    val ver = mapCreate()
+    var str: String = stringTrim(s)
+    if (stringLength(str) == 0) {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    if (charAt(str, 0) == "v") {
+        str = substring(str, 1, stringLength(str))
+    }
+    val parts = stringSplit(str, ".")
+    val count = listSize(parts)
+    if (count >= 1) {
+        val majorStr = stringTrim(toString(listGet(parts, 0)))
+        if (isAllDigits(majorStr)) {
+            mapPut(ver, "major", toInt(majorStr))
+        } else {
+            mapPut(ver, "major", -1)
+            return ver
+        }
+    } else {
+        mapPut(ver, "major", -1)
+        return ver
+    }
+    if (count >= 2) {
+        val minorStr = stringTrim(toString(listGet(parts, 1)))
+        if (isAllDigits(minorStr)) {
+            mapPut(ver, "minor", toInt(minorStr))
+        } else {
+            mapPut(ver, "minor", 0)
+        }
+    } else {
+        mapPut(ver, "minor", 0)
+    }
+    if (count >= 3) {
+        val patchStr = stringTrim(toString(listGet(parts, 2)))
+        if (isAllDigits(patchStr)) {
+            mapPut(ver, "patch", toInt(patchStr))
+        } else {
+            mapPut(ver, "patch", 0)
+        }
+    } else {
+        mapPut(ver, "patch", 0)
+    }
+    return ver
+}
+
+fun isValidVersion(ver: Map): Bool {
+    val m = mapGet(ver, "major")
+    if (m == null) { return false }
+    return toInt(toString(m)) >= 0
+}
+
+fun versionString(ver: Map): String {
+    val major = toString(mapGet(ver, "major"))
+    val minor = toString(mapGet(ver, "minor"))
+    val patch = toString(mapGet(ver, "patch"))
+    return stringConcat(major, stringConcat(".", stringConcat(minor, stringConcat(".", patch))))
+}
+
+fun versionInt(ver: Map): Int {
+    val major = toInt(toString(mapGet(ver, "major")))
+    val minor = toInt(toString(mapGet(ver, "minor")))
+    val patch = toInt(toString(mapGet(ver, "patch")))
+    return major * 1000000 + minor * 1000 + patch
+}
+
+// ---------------------------------------------------------------------------
+// Version Constraints
+// ---------------------------------------------------------------------------
+
+fun parseConstraint(s: String): Map {
+    val c = mapCreate()
+    val str = stringTrim(s)
+    if (str == "*") {
+        mapPut(c, "type", "any")
+        return c
+    }
+    if (startsWith(str, "^")) {
+        mapPut(c, "type", "caret")
+        val verStr = substring(str, 1, stringLength(str))
+        val ver = parseVersionLoose(verStr)
+        mapPut(c, "major", mapGet(ver, "major"))
+        mapPut(c, "minor", mapGet(ver, "minor"))
+        mapPut(c, "patch", mapGet(ver, "patch"))
+        return c
+    }
+    if (startsWith(str, "~")) {
+        mapPut(c, "type", "tilde")
+        val verStr = substring(str, 1, stringLength(str))
+        val ver = parseVersionLoose(verStr)
+        mapPut(c, "major", mapGet(ver, "major"))
+        mapPut(c, "minor", mapGet(ver, "minor"))
+        mapPut(c, "patch", mapGet(ver, "patch"))
+        return c
+    }
+    if (startsWith(str, ">=")) {
+        mapPut(c, "type", "gte")
+        val verStr = stringTrim(substring(str, 2, stringLength(str)))
+        val ver = parseVersionLoose(verStr)
+        mapPut(c, "major", mapGet(ver, "major"))
+        mapPut(c, "minor", mapGet(ver, "minor"))
+        mapPut(c, "patch", mapGet(ver, "patch"))
+        return c
+    }
+    // Exact version
+    mapPut(c, "type", "exact")
+    val ver = parseVersionLoose(str)
+    mapPut(c, "major", mapGet(ver, "major"))
+    mapPut(c, "minor", mapGet(ver, "minor"))
+    mapPut(c, "patch", mapGet(ver, "patch"))
+    return c
+}
+
+fun satisfiesConstraint(ver: Map, constraint: Map): Bool {
+    val cType = toString(mapGet(constraint, "type"))
+    val cMajor = toInt(toString(mapGet(constraint, "major")))
+    val cMinor = toInt(toString(mapGet(constraint, "minor")))
+    val cPatch = toInt(toString(mapGet(constraint, "patch")))
+    val vMajor = toInt(toString(mapGet(ver, "major")))
+    val vMinor = toInt(toString(mapGet(ver, "minor")))
+    val vPatch = toInt(toString(mapGet(ver, "patch")))
+
+    if (cType == "any") { return true }
+
+    if (cType == "exact") {
+        if (vMajor != cMajor) { return false }
+        if (vMinor != cMinor) { return false }
+        if (vPatch != cPatch) { return false }
+        return true
+    }
+
+    if (cType == "gte") {
+        val vInt = vMajor * 1000000 + vMinor * 1000 + vPatch
+        val cInt = cMajor * 1000000 + cMinor * 1000 + cPatch
+        return vInt >= cInt
+    }
+
+    if (cType == "tilde") {
+        // ~1.2.3 means >=1.2.3, <1.3.0
+        if (vMajor != cMajor) { return false }
+        if (vMinor != cMinor) { return false }
+        if (vPatch < cPatch) { return false }
+        return true
+    }
+
+    if (cType == "caret") {
+        // ^1.2.3 means >=1.2.3, <2.0.0
+        // ^0.2.3 means >=0.2.3, <0.3.0
+        val vInt = vMajor * 1000000 + vMinor * 1000 + vPatch
+        val cInt = cMajor * 1000000 + cMinor * 1000 + cPatch
+        if (vInt < cInt) { return false }
+        if (cMajor > 0) {
+            return vMajor == cMajor
+        } else {
+            if (vMajor != cMajor) { return false }
+            return vMinor == cMinor
+        }
+    }
+
+    return false
+}
+
+fun bestMatchVersion(versions: List, constraint: Map): Map {
+    val best = mapCreate()
+    mapPut(best, "major", -1)
+    var bestInt: Int = -1
+    var i: Int = 0
+    while (i < listSize(versions)) {
+        val ver = listGet(versions, i)
+        if (satisfiesConstraint(ver, constraint)) {
+            val vInt = versionInt(ver)
+            if (vInt > bestInt) {
+                bestInt = vInt
+                mapPut(best, "major", mapGet(ver, "major"))
+                mapPut(best, "minor", mapGet(ver, "minor"))
+                mapPut(best, "patch", mapGet(ver, "patch"))
+                val tag = mapGet(ver, "tag")
+                if (tag != null) {
+                    mapPut(best, "tag", tag)
+                }
+                val hash = mapGet(ver, "hash")
+                if (hash != null) {
+                    mapPut(best, "hash", hash)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return best
+}
+
+// ---------------------------------------------------------------------------
+// Manifest Parser (enhanced)
+// ---------------------------------------------------------------------------
+
+fun parseInlineTable(s: String): Map {
+    val result = mapCreate()
+    var inner: String = stringTrim(s)
+    if (startsWith(inner, "{")) {
+        inner = substring(inner, 1, stringLength(inner))
+    }
+    if (endsWith(inner, "}")) {
+        inner = substring(inner, 0, stringLength(inner) - 1)
+    }
+    inner = stringTrim(inner)
+    val parts = stringSplit(inner, ",")
+    var i: Int = 0
+    while (i < listSize(parts)) {
+        val part = stringTrim(toString(listGet(parts, i)))
+        if (stringLength(part) > 0) {
+            val eqPos = stringIndexOf(part, "=")
+            if (eqPos > 0) {
+                val key = stringTrim(substring(part, 0, eqPos))
+                val value = stripQuotes(stringTrim(substring(part, eqPos + 1, stringLength(part))))
+                mapPut(result, key, value)
+            }
+        }
+        i = i + 1
+    }
+    return result
+}
 
 fun parseManifest(path: String): Map {
     val manifest = mapCreate()
@@ -136,9 +464,20 @@ fun parseManifest(path: String): Map {
                 val key = stringTrim(substring(line, 0, eqPos))
                 val value = stringTrim(substring(line, eqPos + 1, stringLength(line)))
                 if (currentSection == "package") {
-                    mapPut(packageInfo, key, value)
+                    mapPut(packageInfo, key, stripQuotes(value))
                 } else if (currentSection == "dependencies") {
-                    mapPut(deps, key, value)
+                    if (startsWith(value, "{")) {
+                        // Inline table: { version = "~2.1", git = "https://..." }
+                        val depSpec = parseInlineTable(value)
+                        mapPut(deps, key, depSpec)
+                    } else {
+                        // Simple string: "^1.0.0"
+                        val depSpec = mapCreate()
+                        mapPut(depSpec, "version", stripQuotes(value))
+                        mapPut(depSpec, "git", "")
+                        mapPut(depSpec, "path", "")
+                        mapPut(deps, key, depSpec)
+                    }
                 }
             }
         }
@@ -146,6 +485,498 @@ fun parseManifest(path: String): Map {
     }
 
     return manifest
+}
+
+fun addDependencyToManifest(name: String, spec: String): Unit {
+    if (fileExists("Fuel.toml") == false) { return }
+    val content = toString(fileRead("Fuel.toml"))
+    val lines = stringSplit(content, "\n")
+    var result: String = ""
+    var inDeps: Bool = false
+    var added: Bool = false
+    var i: Int = 0
+    while (i < listSize(lines)) {
+        val line = toString(listGet(lines, i))
+        val trimmed = stringTrim(line)
+
+        if (trimmed == "[dependencies]") {
+            inDeps = true
+            result = stringConcat(result, stringConcat(line, "\n"))
+        } else if (startsWith(trimmed, "[")) {
+            if (inDeps) {
+                if (added == false) {
+                    result = stringConcat(result, stringConcat(name, stringConcat(" = ", stringConcat(spec, "\n"))))
+                    added = true
+                }
+                inDeps = false
+            }
+            result = stringConcat(result, stringConcat(line, "\n"))
+        } else {
+            if (inDeps) {
+                // Check if this line redefines the same dep — replace it
+                val eqPos = stringIndexOf(trimmed, "=")
+                if (eqPos > 0) {
+                    val existingKey = stringTrim(substring(trimmed, 0, eqPos))
+                    if (existingKey == name) {
+                        // Replace with new spec
+                        result = stringConcat(result, stringConcat(name, stringConcat(" = ", stringConcat(spec, "\n"))))
+                        added = true
+                        i = i + 1
+                        // Skip the original line (handled by not appending it)
+                    } else {
+                        result = stringConcat(result, stringConcat(line, "\n"))
+                    }
+                } else {
+                    result = stringConcat(result, stringConcat(line, "\n"))
+                }
+            } else {
+                result = stringConcat(result, stringConcat(line, "\n"))
+            }
+        }
+        i = i + 1
+    }
+    // If deps section was at the end and not yet added
+    if (inDeps) {
+        if (added == false) {
+            result = stringConcat(result, stringConcat(name, stringConcat(" = ", stringConcat(spec, "\n"))))
+        }
+    }
+    // If there was no [dependencies] section at all
+    if (added == false) {
+        if (stringContains(content, "[dependencies]") == false) {
+            result = stringConcat(result, "\n[dependencies]\n")
+            result = stringConcat(result, stringConcat(name, stringConcat(" = ", stringConcat(spec, "\n"))))
+        }
+    }
+    writeFile("Fuel.toml", result)
+}
+
+fun removeDependencyFromManifest(name: String): Bool {
+    if (fileExists("Fuel.toml") == false) { return false }
+    val content = toString(fileRead("Fuel.toml"))
+    val lines = stringSplit(content, "\n")
+    var result: String = ""
+    var found: Bool = false
+    var inDeps: Bool = false
+    var i: Int = 0
+    while (i < listSize(lines)) {
+        val line = toString(listGet(lines, i))
+        val trimmed = stringTrim(line)
+
+        if (trimmed == "[dependencies]") {
+            inDeps = true
+            result = stringConcat(result, stringConcat(line, "\n"))
+        } else if (startsWith(trimmed, "[")) {
+            inDeps = false
+            result = stringConcat(result, stringConcat(line, "\n"))
+        } else if (inDeps) {
+            val eqPos = stringIndexOf(trimmed, "=")
+            if (eqPos > 0) {
+                val existingKey = stringTrim(substring(trimmed, 0, eqPos))
+                if (existingKey == name) {
+                    found = true
+                    // Skip this line
+                } else {
+                    result = stringConcat(result, stringConcat(line, "\n"))
+                }
+            } else {
+                result = stringConcat(result, stringConcat(line, "\n"))
+            }
+        } else {
+            result = stringConcat(result, stringConcat(line, "\n"))
+        }
+        i = i + 1
+    }
+    if (found) {
+        writeFile("Fuel.toml", result)
+    }
+    return found
+}
+
+// ---------------------------------------------------------------------------
+// Lock File
+// ---------------------------------------------------------------------------
+
+fun parseLockFile(path: String): Map {
+    val lockFile = mapCreate()
+    val packages = listCreate()
+    mapPut(lockFile, "packages", packages)
+
+    if (fileExists(path) == false) {
+        return lockFile
+    }
+
+    val content = toString(fileRead(path))
+    val lines = stringSplit(content, "\n")
+    var currentPkg: Map = mapCreate()
+    var hasPkg: Bool = false
+    var i: Int = 0
+    while (i < listSize(lines)) {
+        val line = stringTrim(toString(listGet(lines, i)))
+
+        if (stringLength(line) == 0) {
+            // skip blank
+        } else if (startsWith(line, "#")) {
+            // skip comment
+        } else if (line == "[[package]]") {
+            // Start a new package entry
+            if (hasPkg) {
+                listAppend(packages, currentPkg)
+            }
+            currentPkg = mapCreate()
+            hasPkg = true
+        } else if (hasPkg) {
+            val eqPos = stringIndexOf(line, "=")
+            if (eqPos > 0) {
+                val key = stringTrim(substring(line, 0, eqPos))
+                val value = stripQuotes(stringTrim(substring(line, eqPos + 1, stringLength(line))))
+                if (key == "version") {
+                    val ver = parseVersion(value)
+                    mapPut(currentPkg, "major", mapGet(ver, "major"))
+                    mapPut(currentPkg, "minor", mapGet(ver, "minor"))
+                    mapPut(currentPkg, "patch", mapGet(ver, "patch"))
+                    mapPut(currentPkg, "versionStr", value)
+                } else if (key == "dependencies") {
+                    // Parse dependency list: ["json", "http"]
+                    val depList = listCreate()
+                    var inner: String = value
+                    if (startsWith(inner, "[")) {
+                        inner = substring(inner, 1, stringLength(inner))
+                    }
+                    if (endsWith(inner, "]")) {
+                        inner = substring(inner, 0, stringLength(inner) - 1)
+                    }
+                    if (stringLength(stringTrim(inner)) > 0) {
+                        val depParts = stringSplit(inner, ",")
+                        var j: Int = 0
+                        while (j < listSize(depParts)) {
+                            val dep = stripQuotes(stringTrim(toString(listGet(depParts, j))))
+                            if (stringLength(dep) > 0) {
+                                listAppend(depList, dep)
+                            }
+                            j = j + 1
+                        }
+                    }
+                    mapPut(currentPkg, "dependencies", depList)
+                } else {
+                    mapPut(currentPkg, key, value)
+                }
+            }
+        }
+        i = i + 1
+    }
+    if (hasPkg) {
+        listAppend(packages, currentPkg)
+    }
+
+    return lockFile
+}
+
+fun findLockedPackage(lockFile: Map, name: String): Map {
+    val empty = mapCreate()
+    mapPut(empty, "major", -1)
+    val packages = mapGet(lockFile, "packages")
+    if (packages == null) { return empty }
+    var i: Int = 0
+    while (i < listSize(packages)) {
+        val pkg = listGet(packages, i)
+        val pkgName = toString(mapGet(pkg, "name"))
+        if (pkgName == name) {
+            return pkg
+        }
+        i = i + 1
+    }
+    return empty
+}
+
+fun serializeLockFile(packages: List): String {
+    var result: String = "# fuel.lock — auto-generated by Fuel, do not edit\n\n"
+    var i: Int = 0
+    while (i < listSize(packages)) {
+        val pkg = listGet(packages, i)
+        result = stringConcat(result, "[[package]]\n")
+        result = stringConcat(result, stringConcat("name = \"", stringConcat(toString(mapGet(pkg, "name")), "\"\n")))
+        val verStr = versionString(pkg)
+        result = stringConcat(result, stringConcat("version = \"", stringConcat(verStr, "\"\n")))
+        val git = mapGet(pkg, "git")
+        if (git != null) {
+            if (stringLength(toString(git)) > 0) {
+                result = stringConcat(result, stringConcat("git = \"", stringConcat(toString(git), "\"\n")))
+            }
+        }
+        val commit = mapGet(pkg, "commit")
+        if (commit != null) {
+            if (stringLength(toString(commit)) > 0) {
+                result = stringConcat(result, stringConcat("commit = \"", stringConcat(toString(commit), "\"\n")))
+            }
+        }
+        val deps = mapGet(pkg, "dependencies")
+        if (deps != null) {
+            if (listSize(deps) > 0) {
+                result = stringConcat(result, "dependencies = [")
+                var j: Int = 0
+                while (j < listSize(deps)) {
+                    if (j > 0) {
+                        result = stringConcat(result, ", ")
+                    }
+                    result = stringConcat(result, stringConcat("\"", stringConcat(toString(listGet(deps, j)), "\"")))
+                    j = j + 1
+                }
+                result = stringConcat(result, "]\n")
+            } else {
+                result = stringConcat(result, "dependencies = []\n")
+            }
+        } else {
+            result = stringConcat(result, "dependencies = []\n")
+        }
+        result = stringConcat(result, "\n")
+        i = i + 1
+    }
+    return result
+}
+
+fun writeLockFile(packages: List): Unit {
+    val content = serializeLockFile(packages)
+    writeFile("fuel.lock", content)
+}
+
+// ---------------------------------------------------------------------------
+// Package Cache
+// ---------------------------------------------------------------------------
+
+fun packageCacheDir(name: String, version: String): String {
+    return stringConcat(cacheDir(), stringConcat("/", stringConcat(name, stringConcat("-", version))))
+}
+
+fun isPackageCached(name: String, version: String): Bool {
+    val dir = packageCacheDir(name, version)
+    // Check if the directory exists by checking for fuel.toml or src/ inside it
+    val srcDir = stringConcat(dir, "/src")
+    if (fileExists(stringConcat(srcDir, "/")) == true) {
+        return true
+    }
+    // Also check via ls exit code
+    val exitCode = systemExec(stringConcat("test -d ", dir))
+    return exitCode == 0
+}
+
+// ---------------------------------------------------------------------------
+// Git Operations
+// ---------------------------------------------------------------------------
+
+fun discoverVersions(gitURL: String): List {
+    val versions = listCreate()
+    val output = captureExec(stringConcat("git ls-remote --tags ", gitURL))
+    if (stringLength(output) == 0) {
+        return versions
+    }
+    val lines = stringSplit(output, "\n")
+    var i: Int = 0
+    while (i < listSize(lines)) {
+        val line = stringTrim(toString(listGet(lines, i)))
+        if (stringLength(line) > 0) {
+            // Skip ^{} dereference entries
+            if (stringContains(line, "^{") == false) {
+                val tabPos = stringIndexOf(line, "\t")
+                if (tabPos > 0) {
+                    val hash = substring(line, 0, tabPos)
+                    val ref = substring(line, tabPos + 1, stringLength(line))
+                    if (startsWith(ref, "refs/tags/")) {
+                        val tag = substring(ref, 10, stringLength(ref))
+                        val ver = parseVersion(tag)
+                        if (isValidVersion(ver)) {
+                            mapPut(ver, "tag", tag)
+                            mapPut(ver, "hash", hash)
+                            listAppend(versions, ver)
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return versions
+}
+
+fun fetchPackage(gitURL: String, tag: String, destDir: String): Bool {
+    ensureCacheDir()
+    // Remove existing dir if present
+    systemExec(stringConcat("rm -rf ", destDir))
+    val cmd = stringConcat("git clone --depth 1 --branch ", stringConcat(tag, stringConcat(" ", stringConcat(gitURL, stringConcat(" ", destDir)))))
+    val exitCode = systemExec(stringConcat(cmd, " 2>/dev/null"))
+    return exitCode == 0
+}
+
+// ---------------------------------------------------------------------------
+// Dependency Resolver
+// ---------------------------------------------------------------------------
+
+fun resolveOneDep(name: String, depSpec: Map, lockFile: Map): Map {
+    val result = mapCreate()
+
+    val versionVal = mapGet(depSpec, "version")
+    var versionStr: String = ""
+    if (versionVal != null) { versionStr = toString(versionVal) }
+
+    val gitVal = mapGet(depSpec, "git")
+    var gitURL: String = ""
+    if (gitVal != null) { gitURL = toString(gitVal) }
+
+    val pathVal = mapGet(depSpec, "path")
+    var localPath: String = ""
+    if (pathVal != null) { localPath = toString(pathVal) }
+
+    // Local path dependency
+    if (stringLength(localPath) > 0) {
+        val srcDir = stringConcat(localPath, "/src")
+        mapPut(result, "dir", srcDir)
+        mapPut(result, "status", "ok")
+        mapPut(result, "type", "local")
+        mapPut(result, "name", name)
+        println(stringConcat("  ", stringConcat(name, stringConcat(" -> ", localPath))))
+        return result
+    }
+
+    // Git dependency requires a URL
+    if (stringLength(gitURL) == 0) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no git URL for dependency: ", name))
+        return result
+    }
+
+    val constraint = parseConstraint(versionStr)
+
+    // Check lock file first
+    val locked = findLockedPackage(lockFile, name)
+    if (isValidVersion(locked)) {
+        if (satisfiesConstraint(locked, constraint)) {
+            val verStr = versionString(locked)
+            if (isPackageCached(name, verStr)) {
+                val pkgDir = packageCacheDir(name, verStr)
+                mapPut(result, "dir", stringConcat(pkgDir, "/src"))
+                mapPut(result, "status", "ok")
+                mapPut(result, "type", "locked")
+                mapPut(result, "name", name)
+                mapPut(result, "major", mapGet(locked, "major"))
+                mapPut(result, "minor", mapGet(locked, "minor"))
+                mapPut(result, "patch", mapGet(locked, "patch"))
+                mapPut(result, "git", toString(mapGet(locked, "git")))
+                mapPut(result, "commit", toString(mapGet(locked, "commit")))
+                println(stringConcat("  ", stringConcat(name, stringConcat(" ", stringConcat(verStr, " (locked)")))))
+                return result
+            }
+        }
+    }
+
+    // Discover versions from git tags
+    println(stringConcat("  Resolving ", stringConcat(name, "...")))
+    val versions = discoverVersions(gitURL)
+    if (listSize(versions) == 0) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no version tags found for: ", name))
+        return result
+    }
+
+    val best = bestMatchVersion(versions, constraint)
+    if (isValidVersion(best) == false) {
+        mapPut(result, "status", "error")
+        mapPut(result, "message", stringConcat("no version satisfies ", stringConcat(versionStr, stringConcat(" for: ", name))))
+        return result
+    }
+
+    val verStr = versionString(best)
+    val tag = toString(mapGet(best, "tag"))
+    val hash = toString(mapGet(best, "hash"))
+    val pkgDir = packageCacheDir(name, verStr)
+
+    // Fetch if not cached
+    if (isPackageCached(name, verStr) == false) {
+        println(stringConcat("  Fetching ", stringConcat(name, stringConcat(" ", stringConcat(verStr, "...")))))
+        val ok = fetchPackage(gitURL, tag, pkgDir)
+        if (ok == false) {
+            mapPut(result, "status", "error")
+            mapPut(result, "message", stringConcat("failed to fetch: ", stringConcat(name, stringConcat(" ", verStr))))
+            return result
+        }
+    }
+
+    mapPut(result, "dir", stringConcat(pkgDir, "/src"))
+    mapPut(result, "status", "ok")
+    mapPut(result, "type", "resolved")
+    mapPut(result, "name", name)
+    mapPut(result, "major", mapGet(best, "major"))
+    mapPut(result, "minor", mapGet(best, "minor"))
+    mapPut(result, "patch", mapGet(best, "patch"))
+    mapPut(result, "git", gitURL)
+    mapPut(result, "commit", hash)
+    println(stringConcat("  ", stringConcat(name, stringConcat(" ", verStr))))
+    return result
+}
+
+fun resolveDependencies(): List {
+    val result = listCreate()
+
+    if (fileExists("Fuel.toml") == false) {
+        return result
+    }
+
+    val manifest = parseManifest("Fuel.toml")
+    val err = mapGet(manifest, "error")
+    if (err != null) {
+        println(stringConcat("error: ", toString(err)))
+        return result
+    }
+
+    val deps = mapGet(manifest, "dependencies")
+    val depKeys = mapKeys(deps)
+    if (listSize(depKeys) == 0) {
+        return result
+    }
+
+    // Load existing lock file
+    val lockFile = parseLockFile("fuel.lock")
+    val resolvedPackages = listCreate()
+    var hasError: Bool = false
+
+    println("Resolving dependencies...")
+    var i: Int = 0
+    while (i < listSize(depKeys)) {
+        val name = toString(listGet(depKeys, i))
+        val depSpec = mapGet(deps, name)
+        val resolved = resolveOneDep(name, depSpec, lockFile)
+        val status = toString(mapGet(resolved, "status"))
+
+        if (status == "ok") {
+            listAppend(result, toString(mapGet(resolved, "dir")))
+            val rType = toString(mapGet(resolved, "type"))
+            if (rType != "local") {
+                // Build lock entry
+                val lockEntry = mapCreate()
+                mapPut(lockEntry, "name", name)
+                mapPut(lockEntry, "major", mapGet(resolved, "major"))
+                mapPut(lockEntry, "minor", mapGet(resolved, "minor"))
+                mapPut(lockEntry, "patch", mapGet(resolved, "patch"))
+                mapPut(lockEntry, "git", mapGet(resolved, "git"))
+                mapPut(lockEntry, "commit", mapGet(resolved, "commit"))
+                mapPut(lockEntry, "dependencies", listCreate())
+                listAppend(resolvedPackages, lockEntry)
+            }
+        } else {
+            val msg = toString(mapGet(resolved, "message"))
+            println(stringConcat("error: ", msg))
+            hasError = true
+        }
+        i = i + 1
+    }
+
+    // Write lock file
+    if (hasError == false) {
+        if (listSize(resolvedPackages) > 0) {
+            writeLockFile(resolvedPackages)
+        }
+    }
+
+    return result
 }
 
 // ---------------------------------------------------------------------------
@@ -186,9 +1017,9 @@ fun cmdInit(args: List): Unit {
 
     // Write Fuel.toml
     var toml: String = "[package]\n"
-    toml = stringConcat(toml, stringConcat("name = ", stringConcat(name, "\n")))
-    toml = stringConcat(toml, "version = 0.1.0\n")
-    toml = stringConcat(toml, stringConcat("description = A Rockit project\n", "\n"))
+    toml = stringConcat(toml, stringConcat("name = \"", stringConcat(name, "\"\n")))
+    toml = stringConcat(toml, "version = \"0.1.0\"\n")
+    toml = stringConcat(toml, stringConcat("description = \"A Rockit project\"\n", "\n"))
     toml = stringConcat(toml, "[dependencies]\n")
     writeFile(stringConcat(name, stringConcat(sep, "Fuel.toml")), toml)
 
@@ -211,6 +1042,111 @@ fun cmdInit(args: List): Unit {
     println("    fuel run")
 }
 
+fun cmdInstall(args: List): Unit {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return
+    }
+
+    val resolved = resolveDependencies()
+    if (listSize(resolved) == 0) {
+        val manifest = parseManifest("Fuel.toml")
+        val deps = mapGet(manifest, "dependencies")
+        val depKeys = mapKeys(deps)
+        if (listSize(depKeys) == 0) {
+            println("No dependencies to install.")
+        }
+    } else {
+        println(stringConcat("Installed ", stringConcat(toString(listSize(resolved)), " dependencies.")))
+    }
+}
+
+fun cmdAdd(args: List): Unit {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return
+    }
+
+    // Parse: fuel add <name> --git <url> [--version "^1.0"]
+    if (listSize(args) == 0) {
+        println("error: package name required")
+        println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
+        return
+    }
+
+    val name = toString(listGet(args, 0))
+    if (startsWith(name, "-")) {
+        println("error: package name required (got flag)")
+        println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
+        return
+    }
+
+    val gitURL = findFlag(args, "--git")
+    val localPath = findFlag(args, "--path")
+    var version: String = findFlag(args, "--version")
+    if (stringLength(version) == 0) {
+        version = "*"
+    }
+
+    if (stringLength(gitURL) == 0) {
+        if (stringLength(localPath) == 0) {
+            println("error: --git <url> or --path <dir> required")
+            println("Usage: fuel add <name> --git <url> [--version \"^1.0\"]")
+            return
+        }
+    }
+
+    // Build the TOML spec string
+    var spec: String = ""
+    if (stringLength(localPath) > 0) {
+        spec = stringConcat("{ path = \"", stringConcat(localPath, "\" }"))
+    } else if (version == "*") {
+        spec = stringConcat("{ git = \"", stringConcat(gitURL, "\" }"))
+    } else {
+        spec = stringConcat("{ version = \"", stringConcat(version, stringConcat("\", git = \"", stringConcat(gitURL, "\" }"))))
+    }
+
+    addDependencyToManifest(name, spec)
+    println(stringConcat("Added ", stringConcat(name, " to Fuel.toml")))
+
+    // Install the new dependency
+    resolveDependencies()
+}
+
+fun cmdRemove(args: List): Unit {
+    if (fileExists("Fuel.toml") == false) {
+        println("error: no Fuel.toml found in current directory")
+        println("Run 'fuel init <name>' to create a new project.")
+        return
+    }
+
+    if (listSize(args) == 0) {
+        println("error: package name required")
+        println("Usage: fuel remove <name>")
+        return
+    }
+
+    val name = toString(listGet(args, 0))
+    val removed = removeDependencyFromManifest(name)
+    if (removed) {
+        println(stringConcat("Removed ", stringConcat(name, " from Fuel.toml")))
+    } else {
+        println(stringConcat("error: dependency '", stringConcat(name, "' not found in Fuel.toml")))
+    }
+}
+
+fun cmdCacheClean(): Unit {
+    val dir = cacheDir()
+    val exitCode = systemExec(stringConcat("rm -rf ", dir))
+    if (exitCode == 0) {
+        println(stringConcat("Cleaned package cache: ", dir))
+    } else {
+        println("error: failed to clean package cache")
+    }
+}
+
 fun cmdBuild(args: List): Unit {
     if (fileExists("Fuel.toml") == false) {
         println("error: no Fuel.toml found in current directory")
@@ -231,6 +1167,9 @@ fun cmdBuild(args: List): Unit {
         println("error: missing 'name' in [package] section of Fuel.toml")
         return
     }
+
+    // Resolve dependencies first
+    val depDirs = resolveDependencies()
 
     val sep = pathSep()
     val entryPoint = stringConcat("src", stringConcat(sep, "main.rok"))
@@ -334,14 +1273,23 @@ fun cmdHelp(): Unit {
     println("    fuel <command> [options]")
     println("")
     println("COMMANDS:")
-    println("    init [name]    Create a new Rockit project")
-    println("    build          Compile the project")
-    println("    run            Build and run the project")
-    println("    clean          Remove build artifacts")
-    println("    version        Print version info")
-    println("    help           Print this help message")
+    println("    init [name]          Create a new Rockit project")
+    println("    install              Resolve and fetch all dependencies")
+    println("    add <pkg> [opts]     Add a dependency")
+    println("    remove <pkg>         Remove a dependency")
+    println("    build                Compile the project")
+    println("    run                  Build and run the project")
+    println("    clean                Remove build artifacts")
+    println("    cache-clean          Clear the global package cache")
+    println("    version              Print version info")
+    println("    help                 Print this help message")
     println("")
-    println("OPTIONS:")
+    println("DEPENDENCY OPTIONS (for 'add'):")
+    println("    --git <url>          Git repository URL")
+    println("    --path <dir>         Local path to package")
+    println("    --version <spec>     Version constraint (^1.0, ~2.1, >=1.0.0, *)")
+    println("")
+    println("BUILD OPTIONS:")
     println("    --compiler-path <path>    Path to the Rockit compiler")
     println("    --runtime-path <path>     Path to rockit_runtime.c")
 }
@@ -370,12 +1318,20 @@ fun main(): Unit {
 
     if (command == "init") {
         cmdInit(restArgs)
+    } else if (command == "install") {
+        cmdInstall(restArgs)
+    } else if (command == "add") {
+        cmdAdd(restArgs)
+    } else if (command == "remove") {
+        cmdRemove(restArgs)
     } else if (command == "build") {
         cmdBuild(restArgs)
     } else if (command == "run") {
         cmdRun(restArgs)
     } else if (command == "clean") {
         cmdClean()
+    } else if (command == "cache-clean") {
+        cmdCacheClean()
     } else if (command == "version" || command == "--version" || command == "-v") {
         cmdVersion()
     } else if (command == "help" || command == "--help" || command == "-h") {
