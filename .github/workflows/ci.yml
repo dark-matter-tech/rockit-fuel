@@ -9,12 +9,13 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
+    container: ubuntu:22.04
 
     steps:
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y git clang-15 curl
-          sudo ln -sf /usr/bin/clang-15 /usr/bin/clang
+          apt-get update && apt-get install -y git clang-15 curl
+          ln -sf /usr/bin/clang-15 /usr/bin/clang
 
       - name: Checkout Fuel
         run: |
@@ -33,7 +34,7 @@ jobs:
           GITEA_URL="${GITHUB_SERVER_URL}"
 
           echo "Downloading ${ARCHIVE}..."
-          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
           curl -fsSL -o "/tmp/${ARCHIVE}" \
             "${GITEA_URL}/Dark-Matter/moon/releases/download/v${ROCKIT_VERSION}/${ARCHIVE}"
@@ -46,7 +47,7 @@ jobs:
           # Verify binary works
           ${ROCKIT_DIR}/bin/rockit version
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
       - name: Build Fuel
         run: $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
