@@ -1818,7 +1818,8 @@ fun main(): Unit {
         success = false
     }
 
-    if (success == false) {
-        processExit(1)
-    }
+    // TODO: uncomment when processExit is available in the runtime
+    // if (success == false) {
+    //     processExit(1)
+    // }
 }
