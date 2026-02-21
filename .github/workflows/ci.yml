@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [develop, staging, master]
 
-env:
-  ROCKIT_VERSION: "0.1.0"
-
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
@@ -17,7 +14,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git clang-15 jq curl
+          apt-get update && apt-get install -y git clang-15
           ln -sf /usr/bin/clang-15 /usr/bin/clang
 
       - name: Checkout Fuel
@@ -30,39 +27,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Get Rockit compiler
+      - name: Build Rockit compiler
         run: |
-          # Try to download pre-built binary from release first
-          ARCHIVE="rockit-${ROCKIT_VERSION}-linux-x86_64.tar.gz"
-          API="${GITHUB_SERVER_URL}/api/v1"
-          ASSET_URL=$(curl -s -H "Authorization: token ${FUEL_TOKEN}" \
-            "${API}/repos/Dark-Matter/moon/releases/tags/v${ROCKIT_VERSION}" \
-            | jq -r ".assets[] | select(.name == \"${ARCHIVE}\") | .browser_download_url" 2>/dev/null || true)
-
-          if [ -n "$ASSET_URL" ] && [ "$ASSET_URL" != "null" ]; then
-            echo "Downloading pre-built Rockit compiler..."
-            curl -fSL -H "Authorization: token ${FUEL_TOKEN}" -o "/tmp/${ARCHIVE}" "${ASSET_URL}"
-            tar -xzf "/tmp/${ARCHIVE}" -C /tmp
-            echo "COMPILER=/tmp/rockit-${ROCKIT_VERSION}-linux-x86_64/rockit/bin/rockit" >> "$GITHUB_ENV"
-            echo "RUNTIME=/tmp/rockit-${ROCKIT_VERSION}-linux-x86_64/rockit/share/rockit/rockit_runtime.c" >> "$GITHUB_ENV"
-          else
-            echo "No release binary found, building from source..."
-            echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
-            chmod 600 ~/.netrc
-            git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
-            cd /tmp/rockit-compiler/RockitCompiler
-            swift run rockit build-native Stage1/command.rok
-            echo "COMPILER=/tmp/rockit-compiler/RockitCompiler/Stage1/command" >> "$GITHUB_ENV"
-            echo "RUNTIME=/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c" >> "$GITHUB_ENV"
-          fi
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
+          cd /tmp/rockit-compiler/RockitCompiler
+          swift run rockit build-native Stage1/command.rok
         env:
           FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
       - name: Build Fuel
-        run: $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
+        run: |
+          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
+          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
+          $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
 
       - name: Test — rockit version
-        run: $COMPILER version
+        run: /tmp/rockit-compiler/RockitCompiler/Stage1/command version
 
       # --- version / help ---
 
@@ -109,12 +91,16 @@ jobs:
       - name: Test — build
         run: |
           cd /tmp/test-project
+          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
+          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
           $GITHUB_WORKSPACE/fuel build --compiler-path $COMPILER --runtime-path $RUNTIME
           test -f build/test-project
 
       - name: Test — run
         run: |
           cd /tmp/test-project
+          COMPILER="/tmp/rockit-compiler/RockitCompiler/Stage1/command"
+          RUNTIME="/tmp/rockit-compiler/RockitCompiler/Runtime/rockit_runtime.c"
           $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
 
       - name: Test — clean
