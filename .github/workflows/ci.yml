@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git clang-15
+          apt-get update && apt-get install -y git clang-15 curl
           ln -sf /usr/bin/clang-15 /usr/bin/clang
 
       - name: Checkout Fuel
@@ -27,13 +27,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Build Rockit compiler
+      - name: Download Rockit compiler
         run: |
           echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${FUEL_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
-          git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
-          cd /tmp/rockit-compiler/RockitCompiler
-          swift run rockit build-native Stage1/command.rok
+          curl -fsSL -o /tmp/rockit.tar.gz "${GITHUB_SERVER_URL}/Dark-Matter/moon/releases/download/v0.1.1/rockit-0.1.1-linux-x86_64.tar.gz"
+          mkdir -p /tmp/rockit-compiler/RockitCompiler/Stage1
+          mkdir -p /tmp/rockit-compiler/RockitCompiler/Runtime
+          tar -xzf /tmp/rockit.tar.gz -C /tmp
+          cp /tmp/rockit-0.1.1-linux-x86_64/rockit/bin/rockit /tmp/rockit-compiler/RockitCompiler/Stage1/command
+          cp /tmp/rockit-0.1.1-linux-x86_64/rockit/share/rockit/rockit_runtime.c /tmp/rockit-compiler/RockitCompiler/Runtime/
+          cp /tmp/rockit-0.1.1-linux-x86_64/rockit/share/rockit/rockit_runtime.h /tmp/rockit-compiler/RockitCompiler/Runtime/
+          chmod +x /tmp/rockit-compiler/RockitCompiler/Stage1/command
         env:
           FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
