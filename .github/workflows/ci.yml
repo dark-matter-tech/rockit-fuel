@@ -34,11 +34,7 @@ jobs:
           chmod 600 ~/.netrc
           git clone --depth 1 --branch develop "${GITHUB_SERVER_URL}/Dark-Matter/moon.git" /tmp/rockit-compiler
           cd /tmp/rockit-compiler/RockitCompiler
-          echo "Downloading pre-built binary instead of swift build"
-          curl -fsSL -o /tmp/rockit.tar.gz "${GITHUB_SERVER_URL}/Dark-Matter/moon/releases/download/v0.1.1/rockit-0.1.1-linux-x86_64.tar.gz"
-          tar -xzf /tmp/rockit.tar.gz -C /tmp
-          cp /tmp/rockit-0.1.1-linux-x86_64/rockit/bin/rockit Stage1/command
-          chmod +x Stage1/command
+          echo "hello"
         env:
           FUEL_TOKEN: ${{ secrets.FUEL_TOKEN }}
 
