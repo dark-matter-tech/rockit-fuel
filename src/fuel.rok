@@ -1703,7 +1703,7 @@ fun cmdHelp(): Unit {
     println("")
     println("BUILD OPTIONS:")
     println("    --compiler-path <path>    Path to the Rockit compiler")
-    println("    --runtime-path <path>     Path to rockit_runtime.c")
+    println("    --runtime-path <path>     Path to rockit_runtime.o")
 }
 
 // ---------------------------------------------------------------------------
