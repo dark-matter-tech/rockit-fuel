@@ -9,7 +9,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
-    container: ubuntu:22.04
+    container: swift:5.10.1-jammy
 
     steps:
       - name: Install dependencies
