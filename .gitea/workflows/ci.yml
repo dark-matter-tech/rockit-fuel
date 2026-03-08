@@ -15,7 +15,7 @@ jobs:
         shell: bash
 
     env:
-      COMPILER: /tmp/stage1
+      COMPILER: /tmp/rockit-compiler/src/command
       RUNTIME: /tmp/rockit-compiler/runtime/rockit_runtime.o
 
     steps:
@@ -42,12 +42,12 @@ jobs:
           git clone --depth 1 --recurse-submodules https://github.com/dark-matter-tech/rockit-compiler.git /tmp/rockit-compiler
 
           cd /tmp/rockit-compiler && bash src/build.sh
-          /tmp/stage0/.build/release/rockit build-native src/command.rok -o /tmp/stage1
+          /tmp/stage0/.build/release/rockit build-native src/command.rok
 
           cd /tmp/rockit-compiler && bash runtime/rockit/build.sh
 
-          chmod +x /tmp/stage1
-          /tmp/stage1 version
+          chmod +x /tmp/rockit-compiler/src/command
+          /tmp/rockit-compiler/src/command version
 
       - name: Build Fuel
         run: |
