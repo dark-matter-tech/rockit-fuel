@@ -36,10 +36,10 @@ jobs:
 
       - name: Build Rockit compiler from source
         run: |
-          git clone --depth 1 https://rustygits.com/Dark-Matter/rockit-booster.git /tmp/stage0
+          git clone --depth 1 "${GITHUB_SERVER_URL}/Dark-Matter/rockit-booster.git" /tmp/stage0
           cd /tmp/stage0 && swift build -c release
 
-          git clone --depth 1 --recurse-submodules https://rustygits.com/Dark-Matter/rockit-compiler.git /tmp/rockit-compiler
+          git clone --depth 1 --recurse-submodules "${GITHUB_SERVER_URL}/Dark-Matter/rockit-compiler.git" /tmp/rockit-compiler
 
           cd /tmp/rockit-compiler && bash src/build.sh
           /tmp/stage0/.build/release/rockit build-native src/command.rok
