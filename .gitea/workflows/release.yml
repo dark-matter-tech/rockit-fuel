@@ -41,10 +41,10 @@ jobs:
 
       - name: Build Rockit compiler from source
         run: |
-          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@${GITHUB_SERVER_URL#https://}/Dark-Matter/rockit-booster.git" /tmp/stage0
+          git clone --depth 1 "https://x-access-token:${GITEA_PAT}@${GITHUB_SERVER_URL#https://}/Dark-Matter/rockit-booster.git" /tmp/stage0
           cd /tmp/stage0 && swift build -c release
 
-          git clone --depth 1 --recurse-submodules "https://x-access-token:${GITHUB_TOKEN}@${GITHUB_SERVER_URL#https://}/Dark-Matter/rockit-compiler.git" /tmp/rockit-compiler
+          git clone --depth 1 --recurse-submodules "https://x-access-token:${GITEA_PAT}@${GITHUB_SERVER_URL#https://}/Dark-Matter/rockit-compiler.git" /tmp/rockit-compiler
 
           cd /tmp/rockit-compiler && bash src/build.sh
           /tmp/stage0/.build/release/rockit build-native src/command.rok
@@ -56,7 +56,7 @@ jobs:
           echo "RUNTIME=/tmp/rockit-compiler/runtime/rockit_runtime.o" >> "$GITHUB_ENV"
           /tmp/rockit-compiler/src/command version
         env:
-          GITHUB_TOKEN: ${{ gitea.token }}
+          GITEA_PAT: ${{ secrets.GITEAPAT }}
 
       - name: Build Fuel
         run: |
