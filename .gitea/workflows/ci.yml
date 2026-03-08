@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    container: swift:5.10.1-jammy
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      COMPILER: /tmp/stage1
+      RUNTIME: /tmp/rockit-compiler/runtime/rockit_runtime.o
+
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y git clang-15 curl libssl-dev pkg-config
+          ln -sf /usr/bin/clang-15 /usr/bin/clang
+
+      - name: Checkout Fuel
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "${BRANCH}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" .
+        env:
+          GITHUB_TOKEN: ${{ gitea.token }}
+
+      - name: Build Rockit compiler from source
+        run: |
+          git clone --depth 1 https://github.com/dark-matter-tech/rockit-booster.git /tmp/stage0
+          cd /tmp/stage0 && swift build -c release
+
+          git clone --depth 1 --recurse-submodules https://github.com/dark-matter-tech/rockit-compiler.git /tmp/rockit-compiler
+
+          cd /tmp/rockit-compiler && bash src/build.sh
+          /tmp/stage0/.build/release/rockit build-native src/command.rok -o /tmp/stage1
+
+          cd /tmp/rockit-compiler && bash runtime/rockit/build.sh
+
+          chmod +x /tmp/stage1
+          /tmp/stage1 version
+
+      - name: Build Fuel
+        run: |
+          $COMPILER build-native src/fuel.rok -o fuel --runtime-path $RUNTIME
+
+      - name: Test -- rockit version
+        run: $COMPILER version
+
+      # --- version / help ---
+
+      - name: Test -- version
+        run: ./fuel version | grep -q "0.3.0"
+
+      - name: Test -- --version alias
+        run: ./fuel --version | grep -q "0.3.0"
+
+      - name: Test -- -v alias
+        run: ./fuel -v | grep -q "0.3.0"
+
+      - name: Test -- help
+        run: ./fuel help | grep -q "USAGE:"
+
+      - name: Test -- help -- lists update command
+        run: ./fuel help | grep -q "update"
+
+      - name: Test -- help -- lists list command
+        run: ./fuel help | grep -q "list"
+
+      - name: Test -- --help alias
+        run: ./fuel --help | grep -q "USAGE:"
+
+      - name: Test -- -h alias
+        run: ./fuel -h | grep -q "USAGE:"
+
+      - name: Test -- no args shows help
+        run: ./fuel | grep -q "USAGE:"
+
+      # --- init ---
+
+      - name: Test -- init
+        run: |
+          cd /tmp
+          $GITHUB_WORKSPACE/fuel init test-project
+          test -f test-project/Fuel.toml
+          test -f test-project/src/main.rok
+          test -f test-project/README.md
+          grep -q "test-project" test-project/Fuel.toml
+
+      # --- build / run / clean ---
+
+      - name: Test -- build
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel build --compiler-path $COMPILER --runtime-path $RUNTIME
+          test -f build/test-project
+
+      - name: Test -- run
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel run --compiler-path $COMPILER --runtime-path $RUNTIME 2>&1 | grep -q "Hello, Rockit!"
+
+      - name: Test -- clean
+        run: |
+          cd /tmp/test-project
+          test -d build
+          $GITHUB_WORKSPACE/fuel clean
+          test ! -d build
+
+      # --- install ---
+
+      - name: Test -- install -- no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel install 2>&1 | grep -q "No dependencies to install"
+
+      # --- list ---
+
+      - name: Test -- list -- no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel list 2>&1 | grep -q "No dependencies"
+
+      # --- update ---
+
+      - name: Test -- update -- no dependencies
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel update 2>&1 | grep -q "No dependencies to update"
+
+      # --- add ---
+
+      - name: Test -- add -- no args error
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add 2>&1 | grep -q "package name required"
+
+      - name: Test -- add -- missing source error
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add mylib 2>&1 | grep -q "\-\-git"
+
+      - name: Test -- add -- local path dependency
+        run: |
+          mkdir -p /tmp/local-pkg/src
+          cat > /tmp/local-pkg/Fuel.toml << 'TOML'
+          [package]
+          name = local-pkg
+          version = 0.1.0
+          TOML
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel add locallib --path /tmp/local-pkg
+          grep -q "locallib" Fuel.toml
+
+      # --- remove ---
+
+      - name: Test -- remove -- existing dependency
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove locallib 2>&1 | grep -q "Removed locallib"
+          ! grep -q "locallib" Fuel.toml
+
+      - name: Test -- remove -- no args error
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove 2>&1 | grep -q "package name required"
+
+      - name: Test -- remove -- nonexistent dependency
+        run: |
+          cd /tmp/test-project
+          $GITHUB_WORKSPACE/fuel remove nonexistent 2>&1 | grep -q "not found"
+
+      # --- cache-clean ---
+
+      - name: Test -- cache-clean
+        run: $GITHUB_WORKSPACE/fuel cache-clean 2>&1 | grep -q "Cleaned package cache"
+
+      # --- error cases ---
+
+      - name: Test -- error -- no Fuel.toml
+        run: |
+          cd /tmp
+          $GITHUB_WORKSPACE/fuel build 2>&1 | grep -q "Fuel.toml"
+
+      - name: Test -- error -- unknown command
+        run: ./fuel badcommand 2>&1 | grep -q "unknown command"
