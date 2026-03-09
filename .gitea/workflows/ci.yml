@@ -9,6 +9,9 @@ jobs:
   build-and-test:
     runs-on: ubuntu-22.04
     container: wrightwingman/rockit-toolchain:latest
+    defaults:
+      run:
+        shell: bash
 
     env:
       COMPILER: /usr/local/bin/rockit
@@ -16,7 +19,14 @@ jobs:
 
     steps:
       - name: Checkout Fuel
-        uses: actions/checkout@v4
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "${BRANCH}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" .
+        env:
+          GITHUB_TOKEN: ${{ gitea.token }}
 
       - name: Build Fuel
         run: |
@@ -162,3 +172,29 @@ jobs:
 
       - name: Test -- error -- unknown command
         run: ./fuel badcommand 2>&1 | grep -q "unknown command"
+
+  mirror:
+    name: Mirror to GitHub
+    runs-on: ubuntu-22.04
+    needs: [build-and-test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/staging')
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "machine ${GITHUB_SERVER_URL#https://} login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+          git clone --bare "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" .
+        env:
+          GITHUB_TOKEN: ${{ gitea.token }}
+      - name: Push to GitHub
+        run: |
+          git remote add github "https://x-access-token:${GH_MIRROR_PAT}@github.com/dark-matter-tech/rockit-fuel.git"
+          git push github --all --force
+          git push github --tags --force
+          echo "Mirrored to GitHub"
+        env:
+          GH_MIRROR_PAT: ${{ secrets.GH_MIRROR_PAT }}
