@@ -37,14 +37,14 @@ jobs:
       - name: Download Rockit toolchain
         run: |
           API="${GITHUB_SERVER_URL}/api"
-          curl -sL -H "Authorization: token ${GITHUB_TOKEN}" \
+          curl -sL -H "Authorization: token ${GITEA_PAT}" \
             "${API}/packages/Dark-Matter/generic/rockit-toolchain/latest/rockit-toolchain-linux-x86_64.tar.gz" \
             -o /tmp/toolchain.tar.gz
           cd /tmp && tar -xzf toolchain.tar.gz
           chmod +x /tmp/rockit-toolchain/bin/rockit
           /tmp/rockit-toolchain/bin/rockit version
         env:
-          GITHUB_TOKEN: ${{ gitea.token }}
+          GITEA_PAT: ${{ secrets.GITEAPAT }}
 
       - name: Build Fuel
         run: |
