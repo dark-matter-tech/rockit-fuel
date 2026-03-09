@@ -2,29 +2,22 @@ name: CI
 
 on:
   push:
-    branches: [develop, master]
   pull_request:
-    branches: [master]
+    branches: [develop, beta, master, staging]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
-    container: ubuntu:22.04
+    container: wrightwingman/rockit-toolchain:latest
     defaults:
       run:
         shell: bash
 
     env:
-      COMPILER: /tmp/rockit-toolchain/bin/rockit
-      RUNTIME: /tmp/rockit-toolchain/share/rockit/rockit_runtime.o
+      COMPILER: /usr/local/bin/rockit
+      RUNTIME: /usr/local/share/rockit/rockit_runtime.o
 
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update -qq
-          apt-get install -y -qq clang-15 lld libssl-dev pkg-config git curl ca-certificates
-          ln -sf /usr/bin/clang-15 /usr/bin/clang
-
       - name: Checkout Fuel
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -34,18 +27,6 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" .
         env:
           GITHUB_TOKEN: ${{ gitea.token }}
-
-      - name: Download Rockit toolchain
-        run: |
-          API="${GITHUB_SERVER_URL}/api"
-          curl -sL -H "Authorization: token ${GITEA_PAT}" \
-            "${API}/packages/Dark-Matter/generic/rockit-toolchain/latest/rockit-toolchain-linux-x86_64.tar.gz" \
-            -o /tmp/toolchain.tar.gz
-          cd /tmp && tar -xzf toolchain.tar.gz
-          chmod +x /tmp/rockit-toolchain/bin/rockit
-          /tmp/rockit-toolchain/bin/rockit version
-        env:
-          GITEA_PAT: ${{ secrets.GITEAPAT }}
 
       - name: Build Fuel
         run: |
@@ -196,7 +177,7 @@ jobs:
     name: Mirror to GitHub
     runs-on: ubuntu-22.04
     needs: [build-and-test]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/staging')
     defaults:
       run:
         shell: bash
