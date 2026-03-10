@@ -37,9 +37,9 @@ jobs:
 
       - name: Build Rockit toolchain (Stage 0 + Stage 1 + runtime)
         run: |
-          git clone --depth 1 https://github.com/dark-matter-tech/rockit-booster.git /tmp/stage0
+          git clone --depth 1 https://rustygits.com/Dark-Matter/rockit-booster.git /tmp/stage0
           cd /tmp/stage0 && swift build -c release && cd -
-          git clone --depth 1 --recurse-submodules https://github.com/dark-matter-tech/rockit-compiler.git /tmp/compiler
+          git clone --depth 1 --recurse-submodules https://rustygits.com/Dark-Matter/rockit-compiler.git /tmp/compiler
           cd /tmp/compiler
           ROCKIT=/tmp/stage0/.build/release/rockit
           bash src/build.sh
