@@ -82,7 +82,8 @@ jobs:
       - name: Test -- run
         run: |
           cd /tmp/test-project
-          $GITHUB_WORKSPACE/fuel run --compiler-path /usr/local/bin/rockit --runtime-path /usr/local/share/rockit/rockit_runtime.o 2>&1 | grep -q "Hello, Rockit!"
+          OUTPUT=$($GITHUB_WORKSPACE/fuel run --compiler-path /usr/local/bin/rockit --runtime-path /usr/local/share/rockit/rockit_runtime.o 2>&1)
+          echo "$OUTPUT" | grep -q "Hello, Rockit!"
 
       - name: Test -- clean
         run: |
