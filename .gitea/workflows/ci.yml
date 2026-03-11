@@ -26,7 +26,7 @@ jobs:
 
       - name: Build runtime
         run: |
-          git clone --depth 1 https://rustygits.com/Dark-Matter/rockit-runtime.git /tmp/runtime
+          git clone --depth 1 "${GITHUB_SERVER_URL}/Dark-Matter/rockit-runtime.git" /tmp/runtime
           cd /tmp/runtime && bash rockit/build.sh && cd -
           mkdir -p /usr/local/share/rockit
           cp /tmp/runtime/rockit/rockit_runtime.o /usr/local/share/rockit/
