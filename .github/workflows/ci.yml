@@ -57,6 +57,14 @@ jobs:
       - name: Test -- rockit version
         run: /usr/local/bin/rockit version
 
+      # --- diagnostics ---
+
+      - name: Diagnostic -- fuel no args
+        run: ./fuel || true
+
+      - name: Diagnostic -- fuel version raw
+        run: ./fuel version 2>&1 || echo "exit code: $?"
+
       # --- version / help ---
 
       - name: Test -- version
