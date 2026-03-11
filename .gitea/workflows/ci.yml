@@ -183,7 +183,7 @@ jobs:
             https://api.github.com/repos/dark-matter-tech/rockit-lang/dispatches \
             -d "{\"event_type\":\"integration-test\",\"client_payload\":{\"repo\":\"rockit-fuel\",\"ref\":\"${GITHUB_REF_NAME}\"}}"
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GH_MIRROR_PAT }}
 
   mirror:
     name: Mirror to GitHub
