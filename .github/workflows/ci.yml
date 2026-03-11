@@ -57,43 +57,6 @@ jobs:
       - name: Test -- rockit version
         run: /usr/local/bin/rockit version
 
-      # --- diagnostics ---
-
-      - name: Diagnostic -- fuel no args
-        run: ./fuel || true
-
-      - name: Diagnostic -- fuel version raw
-        run: |
-          ./fuel version 2>&1 || true
-          echo "fuel exit code was $?"
-
-      - name: Diagnostic -- processArgs test
-        run: |
-          cat > /tmp/argtest.rok << 'ROKEOF'
-          fun main() {
-              println(executablePath())
-              val args = processArgs()
-              val n = listSize(args)
-              println(n)
-              var i: Int = 0
-              while (i < n) {
-                  val a = toString(listGet(args, i))
-                  println(stringLength(a))
-                  println(a)
-                  i = i + 1
-              }
-          }
-          ROKEOF
-          /usr/local/bin/rockit build-native /tmp/argtest.rok -o /tmp/argtest --runtime-path /usr/local/share/rockit/rockit_runtime.o || true
-          echo "--- test 1: three args ---"
-          /tmp/argtest hello world version 2>&1 || true
-          echo "--- test 2: single arg ---"
-          /tmp/argtest X 2>&1 || true
-          echo "--- test 3: single long arg ---"
-          /tmp/argtest abcdefghij 2>&1 || true
-          echo "--- test 4: no args ---"
-          /tmp/argtest 2>&1 || true
-
       # --- version / help ---
 
       - name: Test -- version
