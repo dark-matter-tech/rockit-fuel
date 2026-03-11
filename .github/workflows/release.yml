@@ -72,14 +72,32 @@ jobs:
 
       - name: Upload to release
         run: |
-          # Delete existing release if present
-          gh release delete "${TAG}" --yes 2>/dev/null || true
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}"
 
-          gh release create "${TAG}" \
-            --title "Fuel ${TAG}" \
-            --notes "Release ${TAG} of the Fuel package manager for Rockit." \
-            "dist/${ARCHIVE}"
+          # Delete existing release if present
+          EXISTING=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "${API}/releases/tags/${TAG}" | jq -r '.id // empty')
+          if [ -n "$EXISTING" ]; then
+            curl -s -X DELETE -H "Authorization: token ${GITHUB_TOKEN}" \
+              "${API}/releases/${EXISTING}"
+            echo "Deleted existing release ${TAG}"
+          fi
+
+          # Create release
+          RELEASE_ID=$(curl -s -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${API}/releases" \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"Fuel ${TAG}\",\"body\":\"Release ${TAG} of the Fuel package manager for Rockit.\"}" \
+            | jq -r '.id')
+
+          # Upload asset
+          curl -s -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@dist/${ARCHIVE}" \
+            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${ARCHIVE}"
 
           echo "Successfully uploaded: ${ARCHIVE}"
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
