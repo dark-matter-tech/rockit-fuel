@@ -63,7 +63,9 @@ jobs:
         run: ./fuel || true
 
       - name: Diagnostic -- fuel version raw
-        run: ./fuel version 2>&1 || echo "exit code: $?"
+        run: |
+          ./fuel version 2>&1 || true
+          echo "fuel exit code was $?"
 
       # --- version / help ---
 
