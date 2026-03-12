@@ -1188,6 +1188,9 @@ fun cmdInit(args: List): Bool {
         }
     }
 
+    // Use basename for Fuel.toml project name (path may be absolute)
+    val projectName = baseName(name)
+
     // Create directory structure
     val sep = pathSep()
     var mkdirCmd: String = ""
@@ -1204,7 +1207,7 @@ fun cmdInit(args: List): Bool {
 
     // Write Fuel.toml
     var toml: String = "[package]\n"
-    toml = stringConcat(toml, stringConcat("name = \"", stringConcat(name, "\"\n")))
+    toml = stringConcat(toml, stringConcat("name = \"", stringConcat(projectName, "\"\n")))
     toml = stringConcat(toml, "version = \"0.1.0\"\n")
     toml = stringConcat(toml, stringConcat("description = \"A Rockit project\"\n", "\n"))
     toml = stringConcat(toml, "[dependencies]\n")
