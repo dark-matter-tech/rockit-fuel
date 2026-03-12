@@ -26,7 +26,12 @@ jobs:
 
       - name: Build Fuel
         run: |
+          # Wrap clang to add OpenSSL link flags (runtime has OpenSSL symbols)
+          if [ -f /usr/bin/clang-15 ]; then REAL_CLANG=/usr/bin/clang-15; else REAL_CLANG=$(which clang); fi
+          printf '#!/bin/bash\nexec %s "$@" -lssl -lcrypto\n' "$REAL_CLANG" > /usr/local/bin/clang
+          chmod +x /usr/local/bin/clang
           /usr/local/bin/rockit build-native src/fuel.rok -o fuel --runtime-path /usr/local/share/rockit/rockit_runtime.o
+          test -f fuel || (echo "ERROR: fuel binary not produced" && exit 1)
 
       - name: Test -- rockit version
         run: /usr/local/bin/rockit version
